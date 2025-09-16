@@ -1,0 +1,52 @@
+# Brain-Heart Deep Research System .gitignore
+
+# Environment variables
+.env
+.env.local
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Database files
+*.db
+*.sqlite3
+brain_memory.db
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/
+
+# IDEs
+.vscode/
+.idea/
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+
+# Research exports
+exports/
+results/
+*.json
+*.csv
+*.xlsx

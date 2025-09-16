@@ -1,0 +1,12 @@
+# Minimal Brain-Heart System Requirements
+# For budget-conscious users
+
+streamlit
+aiohttp
+python-dotenv
+requests
+openai
+praw
+pandas
+numpy
+beautifulsoup4
