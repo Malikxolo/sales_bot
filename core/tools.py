@@ -1,5 +1,6 @@
 """
 Tool system for Brain-Heart Deep Research System
+FIXED VERSION - Proper model selection flow
 """
 
 import asyncio
@@ -15,6 +16,7 @@ from datetime import datetime
 from abc import ABC, abstractmethod
 from .exceptions import ToolExecutionError
 from .llm_client import LLMClient
+from .web_search_agent import search_perplexity
 
 class BaseTool(ABC):
     """Base class for all tools"""
@@ -154,14 +156,17 @@ class CalculatorTool(BaseTool):
 class WebSearchTool(BaseTool):
     """Web search tool with multiple provider support"""
     
-    def __init__(self, api_key: str, provider: str = "serper"):
+    def __init__(self, api_key: str, web_model: str, provider: str = "perplexity"):
         super().__init__(
             "web_search", 
             "Search the internet for current information"
         )
         self.api_key = api_key
         self.provider = provider
+        self.web_model = web_model  # Fixed: properly store the web model
         self.session = None
+        
+        print(f"WebSearchTool initialized with provider: {provider}, model: {web_model}")
     
     async def execute(self, query: str, num_results: int = 80, **kwargs) -> Dict[str, Any]:
         """Execute web search"""
@@ -176,6 +181,8 @@ class WebSearchTool(BaseTool):
                 return await self._serper_search(query, num_results)
             elif self.provider == "valueserp":
                 return await self._valueserp_search(query, num_results)
+            elif self.provider == "perplexity":
+                return await self._perplexity_search(query, 10)
             else:
                 return {
                     "success": False,
@@ -265,6 +272,42 @@ class WebSearchTool(BaseTool):
                 "total_results": len(results),
                 "provider": "valueserp"
             }
+
+    async def _perplexity_search(self, query: str, num_results: int) -> Dict[str, Any]:
+        """Search using perplexity"""
+        try:
+            # Fixed: Use self.web_model instead of undefined self.model_name
+            model_name = self.web_model if self.web_model else "perplexity/sonar"
+            
+            print(f"Using Perplexity model: {model_name} for query: {query}")
+            
+            response = await search_perplexity(query, model=model_name)
+            
+            # Create structured result matching other providers
+            results = [{
+                "title": f"Perplexity AI Search Results",
+                "snippet": response,
+                "link": "",
+                "position": 1
+            }]
+            
+            return {
+                "success": True,
+                "query": query,
+                "results": results,
+                "total_results": 1,
+                "provider": "perplexity",
+                "model_used": model_name  # Include model info in response
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Perplexity search failed: {str(e)}",
+                "query": query,
+                "provider": "perplexity",
+                "model_attempted": self.web_model
+            }
     
     async def close(self):
         """Close HTTP session"""
@@ -324,16 +367,21 @@ class RAGTool(BaseTool):
 class ToolManager:
     """Manages all available tools"""
     
-    def __init__(self, config, llm_client: LLMClient):
+    def __init__(self, config, llm_client: LLMClient, web_model: str = None):
         self.config = config
         self.llm_client = llm_client
+        self.web_model = web_model  # Store the selected web model
         self.tools: Dict[str, BaseTool] = {}
         self._initialize_tools()
+        
+        print(f"ToolManager initialized with web model: {web_model}")
     
     def _initialize_tools(self):
         """Initialize all configured tools"""
         
-        tool_configs = self.config.get_tool_configs()
+        tool_configs = self.config.get_tool_configs(self.web_model)
+        
+        print(f"Tool configs: {tool_configs}")
         
         # Calculator (always available)
         self.tools["calculator"] = CalculatorTool()
@@ -341,10 +389,21 @@ class ToolManager:
         # Web Search (if configured)
         web_config = tool_configs.get("web_search", {})
         if web_config.get("enabled"):
-            self.tools["web_search"] = WebSearchTool(
-                web_config["primary_key"],
-                web_config["provider"]
-            )
+            # Check if we have an API key (for non-Perplexity providers)
+            api_key = web_config.get("primary_key")
+            
+            # For Perplexity, we don't need a separate API key since it uses OpenRouter
+            if web_config.get("provider") == "perplexity" or api_key:
+                self.tools["web_search"] = WebSearchTool(
+                    api_key or "",  # Empty string for Perplexity
+                    web_model=web_config.get("web_model", self.web_model or "perplexity/sonar"),
+                    provider=web_config.get("provider", "perplexity")
+                )
+                print(f"WebSearchTool created with model: {web_config.get('web_model', self.web_model)}")
+            else:
+                print("Web search disabled: No API key available")
+        else:
+            print("Web search disabled in config")
         
         # RAG Tool (always available)
         self.tools["rag"] = RAGTool(self.llm_client)

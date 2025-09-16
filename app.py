@@ -1,7 +1,6 @@
 """
 Brain-Heart Deep Research System - Streamlit Application
-REAL VERSION - Pure LLM-driven with actual agents and tools
-NO HARDCODING - Everything dynamically decided by LLMs
+FIXED VERSION - Proper model selection flow
 """
 
 import streamlit as st
@@ -50,15 +49,15 @@ def initialize_config():
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
-async def create_agents_async(config, brain_model_config, heart_model_config):
+async def create_agents_async(config, brain_model_config, heart_model_config, web_model_config):
     """Create Brain and Heart agents with selected models"""
     try:
         # Create LLM clients
         brain_llm = LLMClient(brain_model_config)
         heart_llm = LLMClient(heart_model_config)
         
-        # Create tool manager
-        tool_manager = ToolManager(config, brain_llm)
+        # Create tool manager with web model config
+        tool_manager = ToolManager(config, brain_llm, web_model_config)
         
         # Create agents
         brain_agent = BrainAgent(brain_llm, tool_manager)
@@ -104,6 +103,21 @@ def display_model_selector(config, agent_name: str, default_temp: float):
         )
     
     return config.create_llm_config(provider, model, temperature)
+
+def display_web_model_selector(config, agent_name: str):
+    """Display web model selection interface"""
+    
+    col1 = st.columns([2])[0]
+    
+    with col1:
+        models = config.get_available_web_models()
+        model = st.selectbox(
+            f"{agent_name} Model:",
+            models,
+            key=f"{agent_name}_model"
+        )
+    
+    return model
 
 async def process_query_real(query: str, brain_agent, heart_agent, style: str) -> Dict[str, Any]:
     """Process query through REAL Brain-Heart system - NO HARDCODING"""
@@ -206,10 +220,14 @@ def display_real_results(result: Dict[str, Any], query: str):
                                     st.error(f"Calculation Error: {result_data.get('error')}")
                             elif result_data.get('tool_name') == 'web_search':
                                 if result_data.get('success'):
-                                    st.success(f"Found {result_data.get('total_results', 0)} results")
+                                    st.success(f"Found {result_data.get('total_results', 0)} results using {result_data.get('provider', 'unknown')} provider")
+                                    # Show model used for Perplexity
+                                    if result_data.get('provider') == 'perplexity' and result_data.get('model_used'):
+                                        st.info(f"Model used: {result_data.get('model_used')}")
+                                    
                                     for i, search_result in enumerate(result_data.get('results', [])):
                                         st.markdown(f"**{i+1}. {search_result.get('title')}**")
-                                        st.markdown(f"Link:  {search_result.get('link')}")
+                                        st.markdown(f"Link: {search_result.get('link')}")
                                         st.markdown(f"   {search_result.get('snippet')}")
                                 else:
                                     st.error(f"Search Error: {result_data.get('error')}")
@@ -288,6 +306,13 @@ def main():
         st.markdown("### ❤️ Heart Agent (Synthesizer)")
         st.caption("Creates final user-focused response")
         heart_model_config = display_model_selector(config, "Heart", 0.7)
+
+        st.markdown("---")
+
+        # Web Agent Configuration  
+        st.markdown("### 🌐 Web Search Agent")
+        st.caption("Handles web search operations")
+        web_model_config = display_web_model_selector(config, "Web")
         
         st.markdown("---")
         
@@ -301,10 +326,12 @@ def main():
         
         # Tool status
         st.markdown("### 🛠️ Available Tools")
-        tool_configs = config.get_tool_configs()
+        tool_configs = config.get_tool_configs(web_model_config)
         for tool_name, tool_config in tool_configs.items():
             status = "✅" if tool_config.get("enabled", False) else "❌"
             st.markdown(f"{status} {tool_name}")
+            if tool_name == "web_search" and tool_config.get("enabled"):
+                st.caption(f"   Model: {web_model_config}")
     
     # Main interface
     st.markdown("## 🎯 Research Query")
@@ -329,17 +356,19 @@ def main():
     # Process query with REAL agents
     if submit_button and query.strip():
         # Display model information
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         with col1:
             st.info(f"🧠 Brain: {brain_model_config.provider}/{brain_model_config.model} (T={brain_model_config.temperature})")
         with col2:
             st.info(f"❤️ Heart: {heart_model_config.provider}/{heart_model_config.model} (T={heart_model_config.temperature})")
+        with col3:
+            st.info(f"🌐 Web: {web_model_config}")
         
         # Create agents and process
         with st.spinner("Creating agents and processing query..."):
             try:
                 # Run async agent creation and processing
-                agents_result = asyncio.run(create_agents_async(config, brain_model_config, heart_model_config))
+                agents_result = asyncio.run(create_agents_async(config, brain_model_config, heart_model_config, web_model_config))
                 
                 if agents_result["status"] == "error":
                     st.error(f"❌ Agent creation failed: {agents_result['error']}")

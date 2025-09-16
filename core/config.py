@@ -1,6 +1,6 @@
 """
 Configuration system for Brain-Heart Deep Research System
-Simplified version to avoid import issues
+FIXED VERSION - Proper web model handling
 """
 
 import os
@@ -21,11 +21,17 @@ class LLMConfig:
     base_url: Optional[str] = None
 
 class Config:
-    """Dynamic configuration manager - simplified version"""
+    """Dynamic configuration manager - fixed version"""
     
     def __init__(self):
         self.available_providers: Dict[str, str] = {}
         self.available_models: Dict[str, List[str]] = {}
+        self.available_web_models: List[str] = [
+            "perplexity/sonar",
+            "perplexity/sonar-deep-research",
+            "perplexity/sonar-pro", 
+            "perplexity/sonar-reasoning-pro"
+        ]
         self.load_configuration()
     
     def load_configuration(self):
@@ -47,7 +53,7 @@ class Config:
             api_key = os.getenv(env_key)
             if api_key:
                 self.available_providers[provider] = api_key
-                print(f"Detected {provider.upper()} API key")
+                print(f"✅ Detected {provider.upper()} API key")
         
         if not self.available_providers:
             raise Exception("No LLM provider API keys found. Please set at least one API key in .env file.")
@@ -75,6 +81,10 @@ class Config:
     def get_available_models(self, provider: str) -> List[str]:
         """Get available models for provider"""
         return self.available_models.get(provider, [])
+
+    def get_available_web_models(self) -> List[str]:
+        """Get available web search models"""
+        return self.available_web_models.copy()
     
     def create_llm_config(self, provider: str, model: str, 
                          temperature: float = 0.7, max_tokens: int = 4000) -> LLMConfig:
@@ -101,31 +111,66 @@ class Config:
             base_url=base_url
         )
     
-    def get_tool_configs(self) -> Dict[str, Any]:
-        """Get tool configurations"""
+    def get_tool_configs(self, web_model: str = None) -> Dict[str, Any]:
+        """Get tool configurations with selected web model"""
+        
+        # Default web model if none provided
+        if not web_model:
+            web_model = self.available_web_models[0]
+        
+        # Check for search API keys
+        serper_key = os.getenv('SERPER_API_KEY')
+        valueserp_key = os.getenv('VALUESERP_API_KEY')
+        openrouter_key = os.getenv('OPENROUTER_API_KEY')
+        
+        # Web search is enabled if we have OpenRouter (for Perplexity) or search API keys
+        web_search_enabled = bool(openrouter_key or serper_key or valueserp_key)
         
         tools = {
-            'calculator': {'enabled': True},
+            'calculator': {
+                'enabled': True,
+                'description': 'Mathematical calculations and statistical operations'
+            },
             'web_search': {
-                'enabled': bool(os.getenv('SERPER_API_KEY') or os.getenv('VALUESERP_API_KEY')),
-                'primary_key': os.getenv('SERPER_API_KEY'),
-                'provider': 'serper'
+                'enabled': web_search_enabled,
+                'provider': 'perplexity',  # Default to Perplexity
+                'web_model': web_model,
+                'primary_key': serper_key or valueserp_key,  # For non-Perplexity providers
+                'description': f'Internet search using {web_model}',
+                'model_info': {
+                    'selected_model': web_model,
+                    'available_models': self.available_web_models
+                }
             },
             'social_search': {
                 'enabled': bool(os.getenv('REDDIT_CLIENT_ID') or os.getenv('YOUTUBE_API_KEY')),
                 'reddit_enabled': bool(os.getenv('REDDIT_CLIENT_ID')),
                 'youtube_enabled': bool(os.getenv('YOUTUBE_API_KEY'))
             },
-            'rag': {'enabled': True},
-            'reasoning': {'enabled': True}
+            'rag': {
+                'enabled': True,
+                'description': 'Knowledge base retrieval and analysis'
+            },
+            'reasoning': {
+                'enabled': True,
+                'description': 'Advanced reasoning and analysis'
+            }
         }
         
+        print(f"🛠️  Tool configs generated with web model: {web_model}")
+        print(f"🔍 Web search enabled: {web_search_enabled}")
+        
         return tools
+    
+    def validate_web_model(self, model: str) -> bool:
+        """Validate if web model is available"""
+        return model in self.available_web_models
     
     def to_dict(self) -> Dict[str, Any]:
         """Export configuration as dictionary"""
         return {
             'available_providers': list(self.available_providers.keys()),
             'available_models': self.available_models,
+            'available_web_models': self.available_web_models,
             'tool_configs': self.get_tool_configs()
         }
