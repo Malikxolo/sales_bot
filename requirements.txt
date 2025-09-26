@@ -21,6 +21,7 @@ chromadb>=0.4.0
 langchain>=0.1.0
 langchain-community>=0.0.20
 sentence-transformers>=2.2.0
+langchain-openai
 PyJWT>=2.0.0
 
 # PDF and DOCX support for LangChain
@@ -54,3 +55,4 @@ matplotlib>=3.6.0
 pytest>=7.0.0
 black>=22.0.0
 python-json-logger
+python-multipart

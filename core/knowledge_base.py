@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 import chromadb
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import SentenceTransformerEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain.schema import Document
 
@@ -43,7 +44,7 @@ class KnowledgeBaseManager:
     
     def __init__(self, base_path: str = "db_collection"):
         self.base_path = base_path
-        self.embeddings_model = "all-MiniLM-L6-v2"
+        self.embeddings_model = "text-embedding-3-small"
         self.chunk_size = 1000
         self.chunk_overlap = 100
         
@@ -265,7 +266,7 @@ class KnowledgeBaseManager:
         """Create ChromaDB vector store with user isolation"""
         try:
             # Create embeddings
-            embeddings = SentenceTransformerEmbeddings(model_name=self.embeddings_model)
+            embeddings = OpenAIEmbeddings(model=self.embeddings_model, openai_api_key=os.getenv('OPENAI_API_KEY'))
             logger.info(f"Created embeddings model: {self.embeddings_model}")
             
             # Use smart client selection
