@@ -194,13 +194,11 @@ async def chat_brain_heart_system(request: ChatMessage = Body(...)):
         brain_model_config = config.create_llm_config(
             provider=brain_provider,
             model=brain_model,
-            temperature=0.3,
             max_tokens=1000
         )
         heart_model_config = config.create_llm_config(
             provider=heart_provider,
             model=heart_model,
-            temperature=0.7,
             max_tokens=1000
         )
         web_model_config = config.get_tool_configs(
