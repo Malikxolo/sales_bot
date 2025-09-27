@@ -35,7 +35,7 @@ class SalesResponseEnhancer:
         
         logger.info(f"💝 Business opportunity details: score={score}, confidence={confidence}")
         
-        if confidence == "low" or score < 60:
+        if confidence == "low" or score < 40:
             logger.info(f"💝 Low confidence ({confidence}) or score ({score}) - skipping enhancement")
             return base_response  # Don't add sales context for low confidence
         

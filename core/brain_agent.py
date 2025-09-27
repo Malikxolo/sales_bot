@@ -398,14 +398,13 @@ Respond with valid JSON only."""
                     continue
                 
                 # Execute tool with enhanced context-aware query
-                enhanced_query = await self._enhance_query_with_context(original_query, plan)
-                logger.info(f"🧠 Enhanced query: '{original_query}' → '{enhanced_query}'")
-                logger.info(f"🧠 Calling tool_manager.execute_tool('{tool_name}', query='{enhanced_query[:30]}...', user_id='{user_id}')")
+                # enhanced_query = await self._enhance_query_with_context(original_query, plan)
+                
 
-                # CRITICAL: Pass user_id to tool execution
+                
                 result = await self.tool_manager.execute_tool(
                     tool_name, 
-                    query=enhanced_query,
+                    query=original_query,
                     user_id=user_id
                 )
                 

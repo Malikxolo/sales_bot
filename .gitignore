@@ -19,6 +19,8 @@ venv/
 env/
 .venv/
 
+db_collection/
+
 # Database files
 *.db
 *.sqlite3

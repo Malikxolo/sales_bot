@@ -10,6 +10,7 @@ from core import (
     LLMClient, HeartAgent, 
     ToolManager, Config, BrainAgent
 )
+from core.optimized_agent import OptimizedAgent
 import json
 import shutil
 
@@ -36,10 +37,17 @@ class UpdateAgentsRequest(BaseModel):
     heart_model: Optional[str]
     use_premium_search: Optional[bool]
     web_model: Optional[str]
+
+
+def list_files_in_directory(directory: str) -> List[str]:
+    """List all files in a given directory"""
+    if not os.path.exists(directory):
+        return []
+    return [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
     
     
 def get_collection_metadata(user_id: str, collection_name: str):
-    metadata_path = f"db_collection/{user_id}/{collection_name}/metadata.json"
+    metadata_path = f"db_collection/{user_id}/{collection_name}/knowledge_base_metadata.json"
     if os.path.exists(metadata_path):
         with open(metadata_path, "r") as f:
             return json.load(f)
@@ -50,6 +58,12 @@ def list_user_collections(user_id: str):
     if not os.path.exists(base_path):
         return []
     return [c for c in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, c))]
+
+def get_users():
+    base_path = "db_collection"
+    if not os.path.exists(base_path):
+        return []
+    return [u for u in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, u))]
     
     
     
@@ -207,34 +221,42 @@ async def chat_brain_heart_system(request: ChatMessage = Body(...)):
         )
         
         
-        agents = await create_agents_async(
-            config=config,
-            brain_model_config=brain_model_config,
-            heart_model_config=heart_model_config,
-            web_model_config=web_model_config,
-            use_premium_search=use_premium_search
-        )
+        # agents = await create_agents_async(
+        #     config=config,
+        #     brain_model_config=brain_model_config,
+        #     heart_model_config=heart_model_config,
+        #     web_model_config=web_model_config,
+        #     use_premium_search=use_premium_search
+        # )
         
-        if agents["status"] != "success":
-            return JSONResponse(
-                content={"error": f"Failed to create agents: {agents['error']}"}, 
-                status_code=500
-            )
+        # if agents["status"] != "success":
+        #     return JSONResponse(
+        #         content={"error": f"Failed to create agents: {agents['error']}"}, 
+        #         status_code=500
+        #     )
+        
+        optimizedAgent = OptimizedAgent(
+            brain_model_config,
+            web_model_config
+        )
         
         # Process through Brain-Heart system
-        result = await process_query_real(
-            query=user_query,
-            brain_agent=agents["brain_agent"],
-            heart_agent=agents["heart_agent"],
-            style="helpful",  # Default style, could be parameterized
-            user_id=user_id
-        )
+        # result = await process_query_real(
+        #     query=user_query,
+        #     brain_agent=agents["brain_agent"],
+        #     heart_agent=agents["heart_agent"],
+        #     style="helpful",  # Default style, could be parameterized
+        #     user_id=user_id
+        # )
+        
+        result = await optimizedAgent.process_query(message, [], user_id)
         
         if result["success"]:
-            response_content = result["heart_result"].get("response", "No response generated")
+            # response_content = result["heart_result"].get("response", "No response generated")
+            response_content = result['response']
             
             return JSONResponse(content={
-                "content": response_content,
+                "content": response_content[:4000],
                 "brain_time": result.get("brain_time", 0),
                 "total_time": result.get("total_time", 0),
                 "tools_used": result["brain_result"].get("tools_used", []),
@@ -254,6 +276,8 @@ async def chat_brain_heart_system(request: ChatMessage = Body(...)):
         )
 
 # Additional utility endpoints
+
+
 
 @router.get("/chat/memory/{user_id}")
 async def get_user_memory(user_id: str):
@@ -319,6 +343,25 @@ async def chat_single_query_legacy(query: str = Body(...), user_id: str = Body(.
             content={"error": f"Single query processing failed: {str(e)}"}, 
             status_code=500
         )
+        
+
+@router.get("/get-collections")
+async def get_collections():
+    """List all user IDs with collections"""
+    try:
+        users = get_users()
+        data = []
+
+        for user in users:
+            collections = list_user_collections(user)
+            for c in collections:
+                meta = get_collection_metadata(user, c)
+                data.append({"name": c, "metadata": [meta]})
+        return JSONResponse(content={"collections": data}, status_code=200)
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+
         
 @router.get("/collections/{user_id}")
 async def list_collections(user_id: str):

@@ -81,6 +81,9 @@ class KnowledgeBaseManager:
         try:
             logger.info(f"Starting knowledge base creation for user {user_id}, collection: {collection_name}")
             
+            # Extract file names from file paths
+            file_names = [os.path.basename(file_path) for file_path in file_paths]
+            
             # 1. Setup user-specific paths
             user_path = os.path.join(self.base_path, user_id)
             collection_path = os.path.join(user_path, collection_name)
@@ -98,7 +101,10 @@ class KnowledgeBaseManager:
                 return {
                     "success": False,
                     "error": "No documents could be loaded",
-                    "details": {"file_count": len(file_paths)}
+                    "details": {
+                        "file_count": len(file_paths),
+                        "file_names": file_names
+                    }
                 }
             
             logger.info(f"Successfully loaded {len(documents)} documents")
@@ -117,7 +123,9 @@ class KnowledgeBaseManager:
                 metadata = {
                     "user_id": user_id,
                     "collection_name": collection_name,
+                    "snippet": texts[0].page_content[:50] if texts else "",
                     "file_count": len(file_paths),
+                    "file_names": file_names,
                     "document_count": len(documents),
                     "chunk_count": len(texts),
                     "embedding_model": self.embeddings_model,
