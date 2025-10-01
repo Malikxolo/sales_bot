@@ -69,7 +69,7 @@ class OptimizedAgent:
             tool_time = (datetime.now() - tool_start).total_seconds()
             logger.info(f"⏱️ Tools executed in {tool_time:.2f}s")
             
-            # LOG: Tool results summary
+            
             if tool_results:
                 logger.info(f"🛠️ TOOL RESULTS SUMMARY:")
                 for tool_name, result in tool_results.items():
@@ -82,7 +82,7 @@ class OptimizedAgent:
             else:
                 logger.info(f"🛠️ NO TOOLS EXECUTED - Conversational response only")
             
-            # STEP 3: Generate final response (single LLM call)
+            
             response_start = datetime.now()
             logger.info(f"💭 PASSING TO RESPONSE GENERATOR:")
             logger.info(f"   Analysis data: {len(str(analysis))} chars")
@@ -130,7 +130,7 @@ class OptimizedAgent:
         
         guides = {
             'frustrated': {
-                'high': "User is highly frustrated - use very empathetic, understanding language. Be supportive and understanding",  # Remove Hindi,
+                'high': "User is highly frustrated - use very empathetic, understanding language. Be supportive and understanding", 
                 'medium': "User is frustrated - be supportive and understanding",
                 'low': "User is mildly frustrated - be gentle and reassuring"
             },
