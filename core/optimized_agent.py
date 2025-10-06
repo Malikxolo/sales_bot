@@ -69,7 +69,7 @@ class OptimizedAgent:
             tool_time = (datetime.now() - tool_start).total_seconds()
             logger.info(f"⏱️ Tools executed in {tool_time:.2f}s")
             
-            # LOG: Tool results summary
+            
             if tool_results:
                 logger.info(f"🛠️ TOOL RESULTS SUMMARY:")
                 for tool_name, result in tool_results.items():
@@ -82,7 +82,7 @@ class OptimizedAgent:
             else:
                 logger.info(f"🛠️ NO TOOLS EXECUTED - Conversational response only")
             
-            # STEP 3: Generate final response (single LLM call)
+            
             response_start = datetime.now()
             logger.info(f"💭 PASSING TO RESPONSE GENERATOR:")
             logger.info(f"   Analysis data: {len(str(analysis))} chars")
@@ -130,7 +130,7 @@ class OptimizedAgent:
         
         guides = {
             'frustrated': {
-                'high': "User is highly frustrated - use very empathetic, understanding language. Be supportive and understanding",  # Remove Hindi,
+                'high': "User is highly frustrated - use very empathetic, understanding language. Be supportive and understanding", 
                 'medium': "User is frustrated - be supportive and understanding",
                 'low': "User is mildly frustrated - be gentle and reassuring"
             },
@@ -187,23 +187,25 @@ Perform ALL of the following analyses in ONE response:
    - Does this need current/live information that changes over time?
    - What's their emotional state and communication style?
 
-2. MULTI-SIGNAL BUSINESS OPPORTUNITY ANALYSIS:
-   Evaluate these independent signals (0-100 confidence each):
-   
-   Work Context Signals: Professional language, business terms, operational references, customer/client mentions, process discussions, workplace scenarios
-   
-   Emotional Distress Signals: Frustration, overwhelm, stress expressions, pain points, struggling language, difficulty expressions
-   
-   Solution-Seeking Signals: Help-seeking language, problem-focused communication, "how to" questions, improvement-oriented requests
-   
-   Scale/Scope Signals: Business-level problems vs personal issues, volume indicators, operational scale mentions
-   
-   Calculate composite confidence as weighted average of these signals.
-   Determine engagement strategy:
-   - 80-100: Direct business consultation mode
-   - 60-79: Gentle business suggestion mode  
-   - 40-59: Empathetic probing mode
-   - 0-39: Pure empathy only mode
+2. MOCHAND PRODUCT OPPORTUNITY ANALYSIS:
+   Does the user's query relate to problems that Mochand's AI chatbot solution can solve?
+
+   MOCHAND-SPECIFIC TRIGGERS (check for these pain points):
+   - Customer support automation needs
+   - High customer service costs or staff burden 
+   - Need for 24/7 customer availability
+   - Multiple messaging platform management difficulties (WhatsApp, Facebook, Instagram)
+   - Repetitive customer query handling
+   - Customer engagement/response time issues
+   - Integration needs with CRM/payment systems for customer communication
+   - Scaling customer communication challenges
+
+   If query matches ANY of these specific pain points:
+   - Set business_opportunity.detected = true
+   - Add "rag" to tools_to_use (fetch Mochand product docs)
+
+   If query is about other business areas (accounting, inventory, website, etc.):
+   - Set business_opportunity.detected = false
 
 3. TOOL SELECTION:
    - What tools are needed? (can be multiple or none)
@@ -212,7 +214,9 @@ Perform ALL of the following analyses in ONE response:
         2. Where can that information come from?
         3. What processing/analysis is required?
         4. Select appropriate tools based on these needs
-   - Use NO tools for: greetings, thanks, casual chat
+   - Use NO tools for: 
+     * Greetings, thanks, casual chat
+     * General knowledge questions (e.g., "Python vs JavaScript", "How to code", "What is AI")
    - USE MULTIPLE TOOLS WHEN HELPFUL:
     - Market comparisons → ["web_search", "calculator"]
     - "My product vs competitor" → ["web_search", "rag", "calculator"]  
@@ -228,20 +232,49 @@ Perform ALL of the following analyses in ONE response:
    - Language style (hinglish/english/professional/casual)
 
 6. TOOL QUERY OPTIMIZATION:
-   For each selected tool, create an optimized version of the user query:
    
-   web_search: Convert conversational language to search terms
-   - Remove "can you", "tell me", "I want to know" 
-   - Add context from conversation if relevant
-   - Include time-sensitive terms when needed (today, current, latest, 2025)
+   Step 1: Resolve References
+   - If query has pronouns ("that", "those", "them", "it", "which"):
+     * Look at CONVERSATION CONTEXT above
+     * Replace pronoun with actual entity name
+   - Examples:
+     * "Compare them" + context: "Zendesk, Intercom" → "Zendesk, Intercom"
+     * "Tell me about that sale" + context: "Flipkart sale" → "Flipkart sale"
    
-   rag: Extract key concepts and focus terms
-   - Main topics and entities from the query
-   - Context terms from conversation
+   Step 2: Classify Query Type
+   - Mochand comparison (Mochand vs X) → search X only, exclude Mochand
+   - General comparison (X vs Y, both known) → search "X vs Y comparison"
+   - Follow-up (resolved from context) → use resolved entities
+   - Fresh query → extract from user's words
    
-   calculator: Format as clear mathematical expression
-   - Extract numbers and operations clearly
-
+   Step 3: Build Query
+   
+   WEB_SEARCH rules:
+   - NEVER include "Mochand" in web queries
+   - Add "2025" for time-sensitive topics (events, products, markets)
+   - Skip year for timeless topics (how-to, definitions, history)
+   - Format: [resolved entities from Step 1 OR industry terms from solution_areas] + [specific need] + [year if relevant]
+   
+   RAG: "Mochand" + [topic]
+   CALCULATOR: [math expression]
+   
+   Examples:
+   
+   1. Mochand competitors:
+      - solution_areas = ["customer support automation"]
+      → web: "customer support automation platforms competitors 2025"
+      → rag: "Mochand features"
+   
+   2. Follow-up ("beat those?"):
+      - Context: "Zendesk, Intercom mentioned"
+      → web: "Zendesk Intercom features comparison customer support 2025"
+      → rag: "Mochand competitive advantages"
+   
+   3. Mochand vs competitor:
+      - "Mochand vs AiSensy pricing"
+      → web: "AiSensy pricing customer support chatbot 2025" (search competitor only)
+      → rag: "Mochand pricing"
+      
 Return ONLY valid JSON:
 {{
     "semantic_intent": "clear description of what user wants",
@@ -442,9 +475,18 @@ Return ONLY valid JSON:
     1. NEVER restate or echo what the user just said
     2. NEVER announce tool usage ("Let me search...", "I found this data...")  
     3. Use the sentiment guide to match their emotional state perfectly
-    4. If business opportunity detected, weave in soft business solutions naturally as a caring friend
+    4. If business opportunity detected, use progressive disclosure:
+    - Early conversations: Focus on understanding their situation through questions
+    - After they share pain points and seek guidance: Provide specific Mochand solutions
+    - Match their engagement level naturally
     5. Stay in character as their helpful dost friend throughout
     6. End with engaging question to continue conversation naturally
+    7. ONLY use information from the available data above - never add facts not provided
+    
+    Be specific when data is specific:
+    ✗ "Some companies..." → ✓ "Apple, Samsung, Xiaomi..."
+    ✗ "Market is growing..." → ✓ "Growing 23% CAGR to $46B by 2029..."
+    ✗ "Several symptoms..." → ✓ "Fever, lethargy, loss of appetite..."
 
     USER QUERY: {query}
 
@@ -511,7 +553,27 @@ Return ONLY valid JSON:
         
         import json
         # Save raw tool results for debugging
+        # 👇 ADD THIS ENTIRE BLOCK HERE 👇
+        logger.info(f"🔍 RAW TOOL RESULTS DEBUG:")
+        for tool_name, result in tool_results.items():
+            logger.info(f"\n{'='*60}")
+            logger.info(f"TOOL: {tool_name.upper()}")
+            logger.info(f"{'='*60}")
+            
+            if tool_name == 'web_search' and isinstance(result, dict):
+                logger.info(f"Web Search Query: {result.get('query', 'N/A')}")
+                logger.info(f"Success: {result.get('success', False)}")
+                
+                if 'results' in result and isinstance(result['results'], list):
+                    logger.info(f"Number of results: {len(result['results'])}")
+                    
+                    for idx, item in enumerate(result['results'][:5]):
+                        logger.info(f"\n--- Result {idx+1} ---")
+                        logger.info(f"Title: {item.get('title', 'No title')}")
+                        logger.info(f"Snippet: {item.get('snippet', 'No snippet')}")
+                        logger.info(f"Link: {item.get('link', 'No link')}")
         
+        logger.info(f"\n{'='*60}\n")
         
         formatted = []
         

@@ -529,6 +529,11 @@ def main():
     
     # Sidebar configuration
     with st.sidebar:
+        if st.button("🗑️ Clear Chat History"):
+            st.session_state['chat_history'] = []  # ✅ CORRECT KEY
+            st.success("Chat cleared!")
+            st.rerun()
+            
         st.markdown("## 🎛️ Model Configuration")
         
         # Show available providers
