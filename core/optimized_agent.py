@@ -3,19 +3,13 @@ Optimized Single-Pass Agent System
 Combines semantic analysis, tool execution, and response generation in minimal LLM calls
 """
 
-
-
 import json
 import logging
 import asyncio
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
-
-
 logger = logging.getLogger(__name__)
-
-
 
 class OptimizedAgent:
     """Single-pass agent that minimizes LLM calls while maintaining all functionality"""
@@ -69,7 +63,6 @@ class OptimizedAgent:
             tool_time = (datetime.now() - tool_start).total_seconds()
             logger.info(f"⏱️ Tools executed in {tool_time:.2f}s")
             
-            
             if tool_results:
                 logger.info(f"🛠️ TOOL RESULTS SUMMARY:")
                 for tool_name, result in tool_results.items():
@@ -81,7 +74,6 @@ class OptimizedAgent:
                         logger.info(f"   {tool_name}: RESULT - {type(result)} returned")
             else:
                 logger.info(f"🛠️ NO TOOLS EXECUTED - Conversational response only")
-            
             
             response_start = datetime.now()
             logger.info(f"💭 PASSING TO RESPONSE GENERATOR:")
@@ -123,6 +115,7 @@ class OptimizedAgent:
                 "error": str(e),
                 "response": "I apologize, but I encountered an error. Please try again."
             }
+    
     def _build_sentiment_language_guide(self, sentiment: Dict) -> str:
         """Build sentiment-driven language guidance"""
         emotion = sentiment.get('primary_emotion', 'casual')
@@ -169,7 +162,7 @@ class OptimizedAgent:
         context = self._build_context(chat_history)
         logger.info(f"   Built Context: '{context}'")
         
-        # Create comprehensive prompt that does everything in one shot
+        # ⚠️ MODIFIED: Updated Section 3 and Section 6 in prompt
         analysis_prompt = f"""Analyze this query using multi-signal intelligence and return a complete execution plan:
 
 CONVERSATION CONTEXT: {context}
@@ -200,7 +193,18 @@ Perform ALL of the following analyses in ONE response:
    - Integration needs with CRM/payment systems for customer communication
    - Scaling customer communication challenges
 
-   If query matches ANY of these specific pain points:
+   Set business_opportunity.detected = true if query shows ANY of:
+   - User states a current problem/challenge
+   - User is actively seeking/evaluating solutions
+   - User expresses dissatisfaction with current situation
+   - User mentions "need", "looking for", "considering", "want to improve"
+
+   DO NOT trigger business_opportunity.detected = true for:
+   - Pure research/comparison without context ("Compare X vs Y")
+   - Definition questions ("What is X")
+   - General knowledge inquiries
+
+   If business opportunity detected:
    - Set business_opportunity.detected = true
    - Add "rag" to tools_to_use (fetch Mochand product docs)
 
@@ -214,14 +218,41 @@ Perform ALL of the following analyses in ONE response:
         2. Where can that information come from?
         3. What processing/analysis is required?
         4. Select appropriate tools based on these needs
+   
    - Use NO tools for: 
      * Greetings, thanks, casual chat
      * General knowledge questions (e.g., "Python vs JavaScript", "How to code", "What is AI")
+   
    - USE MULTIPLE TOOLS WHEN HELPFUL:
     - Market comparisons → ["web_search", "calculator"]
     - "My product vs competitor" → ["web_search", "rag", "calculator"]  
     - Financial analysis → ["web_search", "calculator"]
     - Document + market research → ["rag", "web_search"]
+   
+   CRITICAL: TOOL NAMING RULES
+   
+   IF you need ONLY ONE instance of a tool:
+   → Use base name: "web_search", "calculator", "rag"
+   → Example: ["web_search", "rag"]
+   
+   IF you need MULTIPLE instances of the SAME tool:
+   → Use indexed names starting from 0: "tool_0", "tool_1", "tool_2"
+   → Example: ["web_search_0", "web_search_1"]
+   → NEVER mix: ❌ ["web_search", "web_search_0"]
+   
+   Decision tree:
+   - Need 1 web search? → "web_search"
+   - Need 2+ web searches? → "web_search_0", "web_search_1", "web_search_2"
+   - Need 1 calculation? → "calculator"
+   - Need 2+ calculations? → "calculator_0", "calculator_1"
+   - RAG is always singular → "rag" (only one knowledge base)
+   
+   Examples:
+   - "Tesla stock price" → ["web_search"]
+   - "Tesla and Apple stock prices" → ["web_search_0", "web_search_1"]
+   - "Compare Zendesk vs Intercom" → ["web_search_0", "web_search_1"]
+   - "Calculate 10*5 and 20*3" → ["calculator_0", "calculator_1"]
+
 
 4. SENTIMENT & PERSONALITY:
    - User's emotional state (frustrated/excited/casual/urgent/confused)
@@ -237,43 +268,60 @@ Perform ALL of the following analyses in ONE response:
    - If query has pronouns ("that", "those", "them", "it", "which"):
      * Look at CONVERSATION CONTEXT above
      * Replace pronoun with actual entity name
-   - Examples:
-     * "Compare them" + context: "Zendesk, Intercom" → "Zendesk, Intercom"
-     * "Tell me about that sale" + context: "Flipkart sale" → "Flipkart sale"
    
    Step 2: Classify Query Type
    - Mochand comparison (Mochand vs X) → search X only, exclude Mochand
-   - General comparison (X vs Y, both known) → search "X vs Y comparison"
+   - General comparison (X vs Y, both known) → search separately
    - Follow-up (resolved from context) → use resolved entities
    - Fresh query → extract from user's words
    
    Step 3: Build Query
    
-   WEB_SEARCH rules:
-   - NEVER include "Mochand" in web queries
-   - Add "2025" for time-sensitive topics (events, products, markets)
-   - Skip year for timeless topics (how-to, definitions, history)
-   - Format: [resolved entities from Step 1 OR industry terms from solution_areas] + [specific need] + [year if relevant]
+   CRITICAL: enhanced_queries keys must EXACTLY match tools_to_use
    
-   RAG: "Mochand" + [topic]
-   CALCULATOR: [math expression]
+   If tools_to_use = ["web_search"]:
+   {{
+       "web_search": "optimized query"
+   }}
+   
+   If tools_to_use = ["web_search_0", "web_search_1"]:
+   {{
+       "web_search_0": "first specific query",
+       "web_search_1": "second specific query"
+   }}
    
    Examples:
    
-   1. Mochand competitors:
-      - solution_areas = ["customer support automation"]
-      → web: "customer support automation platforms competitors 2025"
-      → rag: "Mochand features"
+   Single search:
+   Query: "Tesla stock price"
+   Tools: ["web_search"]
+   {{
+       "web_search": "Tesla stock price today 2025"
+   }}
    
-   2. Follow-up ("beat those?"):
-      - Context: "Zendesk, Intercom mentioned"
-      → web: "Zendesk Intercom features comparison customer support 2025"
-      → rag: "Mochand competitive advantages"
+   Multiple searches:
+   Query: "Tesla and Apple stock prices"
+   Tools: ["web_search_0", "web_search_1"]
+   {{
+       "web_search_0": "Tesla stock price today 2025",
+       "web_search_1": "Apple stock price today 2025"
+   }}
    
-   3. Mochand vs competitor:
-      - "Mochand vs AiSensy pricing"
-      → web: "AiSensy pricing customer support chatbot 2025" (search competitor only)
-      → rag: "Mochand pricing"
+   Query: "Compare Zendesk and Intercom"
+   Tools: ["web_search_0", "web_search_1"]
+   {{
+       "web_search_0": "Zendesk pricing features 2025",
+       "web_search_1": "Intercom pricing features 2025"
+   }}
+   
+   WEB_SEARCH rules (apply to each):
+   - NEVER include "Mochand" in web queries
+   - Add "2025" for time-sensitive topics
+   - Format: [entity] + [specific need] + [year if relevant]
+   
+   RAG: "Mochand" + [topic]
+   CALCULATOR: [math expression]
+
       
 Return ONLY valid JSON:
 {{
@@ -294,9 +342,9 @@ Return ONLY valid JSON:
     }},
     "tools_to_use": ["tool1", "tool2"],
     "enhanced_queries": {{
-        "web_search": "optimized search query",
-        "rag": "optimized rag query",
-        "calculator": "clear calculation"
+        // Keys here must EXACTLY match tools_to_use
+        // Single tools: "web_search", "rag", "calculator"
+        // Multiple instances: "web_search_0", "web_search_1", etc.
     }},
     "tool_reasoning": "why these tools",
     "sentiment": {{
@@ -379,8 +427,9 @@ Return ONLY valid JSON:
                 }
             }
     
+    # ⚠️ MODIFIED: Updated to handle indexed tool names
     async def _execute_tools(self, tools: List[str], query: str, analysis: Dict, user_id: str = None) -> Dict[str, Any]:
-        """Execute tools with enhanced queries"""
+        """Execute tools with enhanced queries, handling indexed tool names (web_search_0, web_search_1, etc.)"""
         
         if not tools:
             return {}
@@ -388,31 +437,48 @@ Return ONLY valid JSON:
         results = {}
         enhanced_queries = analysis.get('enhanced_queries', {})
         
+        logger.info(f"🔧 EXECUTING TOOLS: {tools}")
+        
         # Execute tools in parallel for speed
         tasks = []
         for tool in tools:
-            if tool in self.available_tools:
+            # Extract base tool name (web_search_0 → web_search)
+            base_tool = self._get_base_tool_name(tool)
+            
+            if base_tool in self.available_tools:
                 # Use enhanced query if available, fallback to raw query
                 tool_query = enhanced_queries.get(tool, query)
-                logger.info(f"🔧 {tool.upper()} ENHANCED QUERY: '{tool_query}'")
+                logger.info(f"🔧 {tool.upper()} (base: {base_tool}) ENHANCED QUERY: '{tool_query}'")
                 
-                task = self.tool_manager.execute_tool(tool, query=tool_query, user_id=user_id)
-                tasks.append((tool, task))
+                # Execute with base tool name, but store with indexed name
+                task = self.tool_manager.execute_tool(base_tool, query=tool_query, user_id=user_id)
+                tasks.append((tool, task))  # Keep indexed name for results
+            else:
+                logger.warning(f"⚠️ Base tool {base_tool} not available, skipping {tool}")
         
         if tasks:
             # Gather all results in parallel
             for tool_name, task in tasks:
                 try:
                     result = await task
-                    results[tool_name] = result
+                    results[tool_name] = result  # Store with indexed name
                     logger.info(f"✅ Tool {tool_name} executed successfully")
                 except Exception as e:
                     logger.error(f"❌ Tool {tool_name} failed: {e}")
                     results[tool_name] = {"error": str(e)}
         
         return results
-
     
+    # ⭐ NEW METHOD: Extract base tool name from indexed tools
+    def _get_base_tool_name(self, tool: str) -> str:
+        """Extract base tool name from indexed tool (web_search_0 → web_search)"""
+        # Check if tool has index suffix (tool_0, tool_1, etc.)
+        if '_' in tool:
+            parts = tool.rsplit('_', 1)
+            if len(parts) == 2 and parts[1].isdigit():
+                return parts[0]  # Return base name (web_search, calculator, etc.)
+        return tool  # Return as-is if no index (rag, web_search without index)
+
     async def _generate_response(self, query: str, analysis: Dict, tool_results: Dict, chat_history: List[Dict]) -> str:
         """Generate response with simple business mode switching like old system"""
         
@@ -546,21 +612,23 @@ Return ONLY valid JSON:
         
         return " \n ".join(context_parts) if context_parts else "No previous context"
     
+    # ⚠️ MINOR MODIFICATION: Handle indexed tool names in formatting
     def _format_tool_results(self, tool_results: dict) -> str:
-        """Format tool results for response generation, handling different tool structures."""
+        """Format tool results for response generation, handling different tool structures and indexed names."""
         if not tool_results:
             return "No external data available"
         
         import json
-        # Save raw tool results for debugging
-        # 👇 ADD THIS ENTIRE BLOCK HERE 👇
         logger.info(f"🔍 RAW TOOL RESULTS DEBUG:")
         for tool_name, result in tool_results.items():
             logger.info(f"\n{'='*60}")
             logger.info(f"TOOL: {tool_name.upper()}")
             logger.info(f"{'='*60}")
             
-            if tool_name == 'web_search' and isinstance(result, dict):
+            # Extract base tool name for type checking
+            base_tool = self._get_base_tool_name(tool_name)
+            
+            if base_tool == 'web_search' and isinstance(result, dict):
                 logger.info(f"Web Search Query: {result.get('query', 'N/A')}")
                 logger.info(f"Success: {result.get('success', False)}")
                 
@@ -578,6 +646,8 @@ Return ONLY valid JSON:
         formatted = []
         
         for tool, result in tool_results.items():
+            base_tool = self._get_base_tool_name(tool)
+            
             if isinstance(result, dict) and 'error' not in result:
                 # Handle RAG-style result
                 if 'success' in result and result['success']:
@@ -588,7 +658,7 @@ Return ONLY valid JSON:
                         if chunks:
                             formatted.append(f"{tool.upper()} CHUNKS:\n" + "\n---\n".join(chunks))
                     
-                    # Handle web search-style results
+                    # Handle web search-style results (indexed or not)
                     elif 'results' in result and isinstance(result['results'], list):
                         formatted.append(f"{tool.upper()} SEARCH RESULTS for query: {result.get('query', '')}\n")
                         for item in result['results']:
@@ -629,6 +699,16 @@ Return ONLY valid JSON:
                         phrases.append(sentence.strip()[:30])
         
         return phrases[-5:] if phrases else []
+    
+    def _clean_json_response(self, response: str) -> str:
+        """Clean LLM response for JSON parsing"""
+        response = response.strip()
+        
+        # Remove thinking tags
+        if '<think>' in response:
+            end_idx = response.find('</think>')
+            if end_idx != -1:
+                response = response[end_idx + 8:].strip()
     
     def _clean_json_response(self, response: str) -> str:
         """Clean LLM response for JSON parsing"""
