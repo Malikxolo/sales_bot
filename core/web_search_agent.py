@@ -58,14 +58,24 @@ async def search_perplexity(query: str, model: str = 'perplexity/sonar') -> str:
         completion = await client.chat.completions.create(
             model=model,
             messages=messages,
-            max_tokens=4000,  # Reasonable limit
-            temperature=0.3   # Lower temperature for factual searches
+            max_tokens=4000,
+            temperature=0.3
         )
         
         response = completion.choices[0].message.content
+        urls = list({
+            ann.url_citation.url
+            for choice in getattr(completion, "choices", [])
+            if (message := getattr(choice, "message", None))
+            for ann in getattr(message, "annotations", [])
+            if getattr(ann, "type", "") == "url_citation"
+            and hasattr(ann, "url_citation")
+            and getattr(ann.url_citation, "url", None)
+        })
+
         logger.info(f"✅ Search completed successfully with {len(response)} characters")
         
-        return response
+        return ("\n\nSources:\n" + "\n".join(urls) if urls else "") + response
         
     except Exception as e:
         error_msg = f"Exception occurred in web-search agent: {e}"
