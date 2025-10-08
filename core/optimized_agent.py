@@ -192,7 +192,8 @@ AVAILABLE TOOLS:
 Perform ALL of the following analyses in ONE response:
 
 1. SEMANTIC INTENT (what user really wants)
-   - What is the user actually asking for?
+   - What is the user actually asking for? Preserve specific details from query:
+        demographics (age/gender), location, platforms, urgency words, price ranges.
    - Does this need current/live information that changes over time?
    - What's their emotional state and communication style?
 
@@ -237,11 +238,6 @@ Perform ALL of the following analyses in ONE response:
    - Use NO tools for: 
      * Greetings, thanks, casual chat
      * General knowledge questions (e.g., "Python vs JavaScript", "How to code", "What is AI")
-   - USE MULTIPLE TOOLS WHEN HELPFUL:
-    - Market comparisons → ["web_search", "calculator"]
-    - "My product vs competitor" → ["web_search", "rag", "calculator"]  
-    - Financial analysis → ["web_search", "calculator"]
-    - Document + market research → ["rag", "web_search"]
 
 4. SENTIMENT & PERSONALITY:
    - User's emotional state (frustrated/excited/casual/urgent/confused)
@@ -281,9 +277,8 @@ Perform ALL of the following analyses in ONE response:
     For tools that need real queries (first tool OR parallel mode):
     Query format rules:
     - RAG: "Mochand" + [topic from query]
-    - web_search: [industry terms, NO "Mochand"] + "2025" if time-sensitive
     - calculator: [valid math expression like "50 * 20"]
-    - Resolve pronouns ("our"/"my"/"it") from CONVERSATION CONTEXT first
+    - web_search: Use semantic_intent as the search query. Add "2025" at the end if time-sensitive.
 
     For tools that are waiting (order[1], order[2], etc. in sequential):
     - Set query to exactly: "WAIT_FOR_PREVIOUS"
