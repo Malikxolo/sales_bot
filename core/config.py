@@ -121,12 +121,12 @@ class Config:
             web_model = self.available_web_models[0]
         
         # Check for search API keys
-        serper_key = os.getenv('SERPER_API_KEY')
+        scrapingdog_key = os.getenv('SCRAPINGDOG_API_KEY')
         valueserp_key = os.getenv('VALUESERP_API_KEY')
         openrouter_key = os.getenv('OPENROUTER_API_KEY')
         
         # Web search is enabled if we have OpenRouter (for Perplexity) or search API keys
-        web_search_enabled = bool(openrouter_key or serper_key or valueserp_key)
+        web_search_enabled = bool(openrouter_key or scrapingdog_key or valueserp_key)
         
         tools = {
             'calculator': {
@@ -135,10 +135,10 @@ class Config:
             },
             'web_search': {
                 'enabled': web_search_enabled,
-                'provider': 'perplexity' if use_premium_search else ('serper' if serper_key else 'valueserp'),
+                'provider': 'perplexity' if use_premium_search else ('scrapingdog' if scrapingdog_key else 'valueserp'),
                 'web_model': web_model if use_premium_search else None,
-                'primary_key': serper_key or valueserp_key,  # For non-Perplexity providers
-                'description': f'Internet search using {"Perplexity " + web_model if use_premium_search else "Serper/ValueSerp"}',
+                'primary_key': scrapingdog_key or valueserp_key,  # For non-Perplexity providers
+                'description': f'Internet search using {"Perplexity " + web_model if use_premium_search else "ScrapingDog/ValueSerp"}',
                 'model_info': {
                     'selected_model': web_model,
                     'available_models': self.available_web_models

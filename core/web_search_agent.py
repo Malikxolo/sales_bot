@@ -34,7 +34,17 @@ async def search_perplexity(query: str, model: str = 'perplexity/sonar') -> str:
     """
     try:
         logger.info(f"Searching with model {model} for query: {query[:100]}...")
-        modified_query = f"{query}\n\nPlease provide sources for your answer. Also suggest alternatives if applicable."
+        modified_query = f"""{query}
+
+        Structure your response clearly:
+
+        1. DIRECT ANSWER: Provide the key information that answers the query
+
+        2. CONDITIONAL INFO: If your answer depends on information not provided by the user (like their location, specific brand/model, budget, dates), explicitly state: "This information requires: [what's needed]"
+
+        3. ALTERNATIVES: Suggest alternatives if applicable
+
+        Be concise and well-organized."""
         # Validate API key
         if not getenv('OPENROUTER_API_KEY'):
             raise Exception("OPENROUTER_API_KEY not found in environment variables")
@@ -74,8 +84,13 @@ async def search_perplexity(query: str, model: str = 'perplexity/sonar') -> str:
         })
 
         logger.info(f"✅ Search completed successfully with {len(response)} characters")
-        
-        return ("\n\nSources:\n" + "\n".join(urls) if urls else "") + response
+
+        # Format sources cleanly at the end
+        if urls:
+            source_section = "\n\n---\nSources:\n" + "\n".join(f"- {url}" for url in urls)
+            return response + source_section
+        else:
+            return response
         
     except Exception as e:
         error_msg = f"Exception occurred in web-search agent: {e}"

@@ -139,28 +139,28 @@ def cleanup_expired_sessions():
 
 
 
-@st.cache_resource
-def start_background_cleanup():
-    """Start background cleanup service - CACHED to prevent multiple threads"""
-    def worker():
-        logger.info("🕐 Background worker starting, waiting 60 seconds...")
-        time.sleep(60)  # Initial delay
+# @st.cache_resource
+# def start_background_cleanup():
+#     """Start background cleanup service - CACHED to prevent multiple threads"""
+#     def worker():
+#         logger.info("🕐 Background worker starting, waiting 60 seconds...")
+#         time.sleep(60)  # Initial delay
         
-        while True:
-            try:
-                logger.info("🕐 Running scheduled background cleanup...")
-                cleanup_expired_sessions()
-                logger.info("🕐 Background cleanup completed, sleeping 1 hour...")
-                time.sleep(3600)  # Run every hour
-            except Exception as e:
-                logger.error(f"❌ Background cleanup error: {e}")
-                time.sleep(3600)
+#         while True:
+#             try:
+#                 logger.info("🕐 Running scheduled background cleanup...")
+#                 cleanup_expired_sessions()
+#                 logger.info("🕐 Background cleanup completed, sleeping 1 hour...")
+#                 time.sleep(3600)  # Run every hour
+#             except Exception as e:
+#                 logger.error(f"❌ Background cleanup error: {e}")
+#                 time.sleep(3600)
     
-    thread = threading.Thread(target=worker, daemon=True)
-    thread.start()
-    logger.info("🔄 Background cleanup service started (cached)")
+#     thread = threading.Thread(target=worker, daemon=True)
+#     thread.start()
+#     logger.info("🔄 Background cleanup service started (cached)")
     
-    return "started"  # Return something so cache works
+#     return "started"  # Return something so cache works
 
 
 
@@ -499,7 +499,7 @@ def main():
     """Main Streamlit application - REAL Brain-Heart system"""
     
     if 'app_initialized' not in st.session_state:
-        start_background_cleanup()
+        # start_background_cleanup()
         st.session_state.app_initialized = True
     
     # Initialize chat history
@@ -530,7 +530,7 @@ def main():
     # Sidebar configuration
     with st.sidebar:
         if st.button("🗑️ Clear Chat History"):
-            st.session_state['chat_history'] = []  # ✅ CORRECT KEY
+            st.session_state['chat_history'] = []  
             st.success("Chat cleared!")
             st.rerun()
             
@@ -667,12 +667,17 @@ def main():
                     elif has_local_files and has_drive_files:
                         st.error("❌ Please select files from only ONE tab (Local OR Google Drive)")
                     else:
+                        
+                        start_time = time.time()
+                        
                         with st.spinner("🔄 Creating knowledge base..."):
                             # Handle local vs Drive files
                             if has_local_files:
                                 # Local files - existing logic
                                 st.info("📁 Processing local files...")
                                 if create_collection(get_user_id(), collection_name, uploaded_files):
+                                    elapsed = time.time() - start_time
+                                    st.success(f"✅ Collection created in {elapsed:.1f}s!")
                                     st.success("✅ Collection created from local files!")
                                     st.session_state.show_upload = False
                                     st.rerun()
@@ -716,6 +721,8 @@ def main():
                                             result = create_knowledge_base(get_user_id(), collection_name, downloaded_files)
                                         
                                         if result["success"]:
+                                            elapsed = time.time() - start_time 
+                                            st.success(f"✅ Collection created in {elapsed:.1f}s!")
                                             st.success("✅ Collection created from Google Drive!")
                                             success = True
                                         else:
@@ -790,7 +797,7 @@ def main():
         with col1:
             st.info(f"🚀 Agent: {agent_model_config.provider}/{agent_model_config.model}")
         with col2:
-            search_type = f"Premium: {web_model_config}" if use_premium_search else "Standard: Serper/ValueSerp"
+            search_type = f"Premium: {web_model_config}" if use_premium_search else "Standard: ScrapingDog/ValueSerp"
             st.info(f"🌐 Web: {search_type}")
 
         # Create agents and process

@@ -180,8 +180,8 @@ class WebSearchTool(BaseTool):
             self.session = aiohttp.ClientSession()
         
         try:
-            if self.provider == "serper":
-                return await self._serper_search(query, num_results)
+            if self.provider == "scrapingdog":
+                return await self._scrapingdog_search(query, num_results)
             elif self.provider == "valueserp":
                 return await self._valueserp_search(query, num_results)
             elif self.provider == "perplexity":
@@ -199,37 +199,35 @@ class WebSearchTool(BaseTool):
                 "provider": self.provider
             }
     
-    async def _serper_search(self, query: str, num_results: int) -> Dict[str, Any]:
-        """Search using Serper API"""
+    async def _scrapingdog_search(self, query: str, num_results: int) -> Dict[str, Any]:
+        """Search using ScrapingDog Google SERP API"""
         
-        headers = {
-            "X-API-KEY": self.api_key,
-            "Content-Type": "application/json"
+        params = {
+            "api_key": self.api_key,
+            "query": query,
+            "results": "10",
+            "page": "0",
+            "country": "in"
         }
         
-        payload = {
-            "q": query,
-            "num": min(num_results, 20)
-        }
-        
-        async with self.session.post(
-            "https://google.serper.dev/search", 
-            headers=headers, 
-            json=payload
+        async with self.session.get(
+            "https://api.scrapingdog.com/google/", 
+            params=params
         ) as response:
             
             if response.status != 200:
-                raise ToolExecutionError(f"Serper API error: {response.status}")
+                raise ToolExecutionError(f"ScrapingDog API error: {response.status}")
             
             data = await response.json()
             
             results = []
-            for item in data.get("organic", [])[:num_results]:
+            # CHANGE THIS LINE:
+            for item in data.get("organic_results", [])[:num_results]:  # organic_results NOT organic_data
                 results.append({
                     "title": item.get("title", ""),
                     "snippet": item.get("snippet", ""),
                     "link": item.get("link", ""),
-                    "position": item.get("position", 0)
+                    "position": item.get("rank", 0)
                 })
             
             return {
@@ -237,8 +235,10 @@ class WebSearchTool(BaseTool):
                 "query": query,
                 "results": results,
                 "total_results": len(results),
-                "provider": "serper"
+                "provider": "scrapingdog"
             }
+
+
     
     async def _valueserp_search(self, query: str, num_results: int) -> Dict[str, Any]:
         """Search using ValueSerp API"""
