@@ -1,6 +1,7 @@
 """
 Brain-Heart Deep Research System - Streamlit Application
 FIXED VERSION - Proper model selection flow
+SECURITY: Path sanitization to prevent directory traversal attacks
 """
 
 import streamlit as st
@@ -21,6 +22,12 @@ from chroma_log_handler import ChromaLogHandler
 from dotenv import load_dotenv
 import aiohttp
 from core.google_drive_integration import render_multi_account_drive_picker, cleanup_multi_account_session
+from core.path_security import (
+    sanitize_path_component,
+    sanitize_filename,
+    validate_safe_path,
+    create_safe_user_path
+)
 
 load_dotenv()
 
@@ -243,15 +250,19 @@ def create_collection(user_id: str, collection_name: str, files: List):
         from core.knowledge_base import kb_manager
         from core.knowledge_base import create_knowledge_base
         
-        # Create user directory
-        user_path = f"db_collection/{user_id}"
+        # SECURITY: Sanitize user inputs
+        safe_user_id = sanitize_path_component(user_id)
+        safe_collection_name = sanitize_path_component(collection_name)
+        
+        # Create user directory with secure path
+        user_path = create_safe_user_path("db_collection", safe_user_id)
         os.makedirs(user_path, exist_ok=True)
         
         # STEP 1: Delete ALL existing Chroma Cloud collections for this user
         try:
             client = kb_manager._get_chroma_client()
             all_collections = client.list_collections()
-            user_prefix = f"{user_id}_"
+            user_prefix = f"{safe_user_id}_"
             
             for collection in all_collections:
                 if collection.name.startswith(user_prefix):
@@ -262,19 +273,22 @@ def create_collection(user_id: str, collection_name: str, files: List):
         
         # STEP 2: Remove existing local collections 
         for existing in os.listdir(user_path):
-            existing_path = os.path.join(user_path, existing)
+            existing_path = validate_safe_path(user_path, existing)
             if os.path.isdir(existing_path):
                 shutil.rmtree(existing_path)
                 logger.info(f"Removed local collection: {existing}")
         
-        # STEP 3: Create new collection directory and save files
-        collection_path = os.path.join(user_path, collection_name)
+        # STEP 3: Create new collection directory and save files with secure paths
+        collection_path = create_safe_user_path("db_collection", safe_user_id, safe_collection_name)
         os.makedirs(collection_path, exist_ok=True)
         
-        # Save uploaded files
+        # Save uploaded files with sanitized filenames
         file_paths = []
         for file in files:
-            file_path = os.path.join(collection_path, file.name)
+            # SECURITY: Sanitize uploaded filename
+            safe_filename = sanitize_filename(file.name)
+            file_path = validate_safe_path(collection_path, safe_filename)
+            
             with open(file_path, "wb") as f:
                 f.write(file.getvalue())
             file_paths.append(file_path)
@@ -282,15 +296,20 @@ def create_collection(user_id: str, collection_name: str, files: List):
         logger.info(f"Saved {len(files)} files for processing")
         
         # STEP 4: Create vector database using your knowledge_base.py logic
-        result = create_knowledge_base(user_id, collection_name, file_paths)
+        result = create_knowledge_base(safe_user_id, safe_collection_name, file_paths)
         
         if result["success"]:
-            logger.info(f"Knowledge base created successfully: {collection_name}")
+            logger.info(f"Knowledge base created successfully: {safe_collection_name}")
             return True
         else:
             logger.error(f"Knowledge base creation failed: {result.get('error', 'Unknown error')}")
             return False
-        
+    
+    except ValueError as ve:
+        # Security validation error
+        logger.error(f"Security validation failed: {ve}")
+        st.error(f"Invalid input: {str(ve)}")
+        return False
     except Exception as e:
         logger.error(f"Failed to create collection: {e}")
         return False
@@ -309,11 +328,23 @@ def render_rag_sidebar():
         
         # Show file count
         try:
-            metadata_path = f"db_collection/{user_id}/{collection_name}/knowledge_base_metadata.json"
+            # SECURITY: Use sanitized paths
+            safe_user_id = sanitize_path_component(user_id)
+            safe_collection_name = sanitize_path_component(collection_name)
+            
+            metadata_path = validate_safe_path(
+                "db_collection",
+                safe_user_id,
+                safe_collection_name,
+                "metadata.json"
+            )
+            
             if os.path.exists(metadata_path):
                 with open(metadata_path, 'r') as f:
                     metadata = json.load(f)
                 st.info(f"Files: {metadata.get('file_count', 0)}")
+        except ValueError as ve:
+            logger.error(f"Security validation failed: {ve}")
         except Exception as e:
             logger.error(f"Error reading metadata: {e}")
             

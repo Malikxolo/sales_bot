@@ -1,6 +1,7 @@
 """
 Google Drive Integration with Multi-Account Session Token Management
 Professional UI with enhanced security and file conflict handling
+SECURITY: Path sanitization to prevent directory traversal attacks
 """
 
 import os
@@ -9,6 +10,12 @@ import logging
 from typing import List, Dict, Any, Optional
 import streamlit as st
 from core.session_manager import SessionTokenManager, MultiAccountManager
+from core.path_security import (
+    sanitize_path_component,
+    sanitize_filename,
+    validate_safe_path,
+    create_safe_user_path
+)
 import uuid
 import hashlib
 
@@ -143,8 +150,11 @@ class MultiAccountGoogleDriveManager:
     def download_files_with_conflict_resolution(self, selected_files: List[Dict[str, Any]]) -> List[str]:
         """Download files from multiple accounts with conflict resolution"""
         try:
-            # Create user-specific temp directory
-            user_temp_dir = os.path.join(self.base_temp_path, self.user_id)
+            # SECURITY: Sanitize user_id for path creation
+            safe_user_id = sanitize_path_component(self.user_id)
+            
+            # Create user-specific temp directory with secure path
+            user_temp_dir = create_safe_user_path(self.base_temp_path, safe_user_id)
             os.makedirs(user_temp_dir, exist_ok=True)
             
             downloaded_files = []
@@ -166,9 +176,11 @@ class MultiAccountGoogleDriveManager:
                     )
                     filename_counts[original_filename] = filename_counts.get(original_filename, 0) + 1
                     
+                    # SECURITY: Validate the final file path
+                    file_path = validate_safe_path(user_temp_dir, safe_filename)
+                    
                     # Download file
                     request = service.files().get_media(fileId=file_id)
-                    file_path = os.path.join(user_temp_dir, safe_filename)
                     
                     with open(file_path, 'wb') as f:
                         downloader = MediaIoBaseDownload(f, request)
@@ -179,49 +191,66 @@ class MultiAccountGoogleDriveManager:
                     downloaded_files.append(file_path)
                     logger.info(f"📥 Downloaded {safe_filename} from account {account_id}")
                     
+                except ValueError as ve:
+                    logger.error(f"❌ Security validation failed for {file_info.get('name', 'unknown')}: {ve}")
+                    continue
                 except Exception as e:
                     logger.error(f"❌ Failed to download file {file_info.get('name', 'unknown')}: {e}")
                     continue
             
             return downloaded_files
             
+        except ValueError as ve:
+            logger.error(f"❌ Security validation failed for user {self.user_id}: {ve}")
+            return []
         except Exception as e:
             logger.error(f"❌ Download failed for user {self.user_id}: {e}")
             return []
     
     def _resolve_filename_conflict(self, filename: str, account_id: str, filename_counts: Dict[str, int]) -> str:
         """Resolve filename conflicts by prefixing with account info"""
+        # SECURITY: Sanitize filename first
+        safe_filename = sanitize_filename(filename)
+        
         if filename not in filename_counts:
-            return filename
+            return safe_filename
         
         # Get file extension
-        name, ext = os.path.splitext(filename)
+        name, ext = os.path.splitext(safe_filename)
+        
+        # SECURITY: Sanitize account_id
+        safe_account_id = sanitize_path_component(account_id)
         
         # Add account prefix to avoid conflicts
-        safe_filename = f"acc{account_id}_{name}{ext}"
-        return safe_filename
+        prefixed_filename = f"acc{safe_account_id}_{name}{ext}"
+        return prefixed_filename
     
     def cleanup_temp_files(self, full_cleanup: bool = False):
         """Clean up temp files and optionally sessions"""
         try:
-            # Clean user's temp directory
-            user_temp_dir = os.path.join(self.base_temp_path, self.user_id)
+            # SECURITY: Sanitize user_id
+            safe_user_id = sanitize_path_component(self.user_id)
+            
+            # Clean user's temp directory with secure path
+            user_temp_dir = create_safe_user_path(self.base_temp_path, safe_user_id)
             if os.path.exists(user_temp_dir):
                 shutil.rmtree(user_temp_dir)
-                logger.info(f"🗑️ Deleted temp directory for user {self.user_id}")
+                logger.info(f"🗑️ Deleted temp directory for user {safe_user_id}")
             
             if full_cleanup:
                 # REVOKE ALL TOKENS BEFORE CLEANUP (ENHANCED)
                 revoked_count = self.account_manager.revoke_all_accounts()
                 logger.info(f"🔒 Revoked {revoked_count} accounts during cleanup")
                 
-                # Clean up accounts index
-                user_sessions_dir = f"sessions/{self.user_id}"
+                # Clean up accounts index with secure path
+                user_sessions_dir = validate_safe_path("sessions", safe_user_id)
                 if os.path.exists(user_sessions_dir):
                     shutil.rmtree(user_sessions_dir)
                 
-                logger.info(f"🗑️ Full cleanup completed for user {self.user_id}")
+                logger.info(f"🗑️ Full cleanup completed for user {safe_user_id}")
                 
+        except ValueError as ve:
+            logger.error(f"❌ Security validation failed during cleanup: {ve}")
         except Exception as e:
             logger.error(f"❌ Cleanup failed for user {self.user_id}: {e}")
     

@@ -15,6 +15,12 @@ from core import (
     ToolManager, Config, BrainAgent
 )
 from core.optimized_agent import OptimizedAgent
+from core.logging_security import (
+    safe_log_response,
+    safe_log_user_data,
+    safe_log_error,
+    safe_log_query
+)
 import json
 import shutil
 import asyncio
@@ -248,8 +254,7 @@ async def chat_brain_heart_system(request: ChatMessage = Body(...)):
         chat_history = request.chat_history if hasattr(request, 'chat_history') else []
         
         
-        logging.info(f"🧠❤️ Brain-Heart chat request - User ID: {user_id}")
-        logging.info(f"🧠❤️ Message count: {len(user_query)}")
+        safe_log_user_data(user_id, 'brain_heart_chat', message_count=len(user_query))
         
         brain_provider = settings.brain_provider or os.getenv("BRAIN_LLM_PROVIDER")
         brain_model = settings.brain_model or os.getenv("BRAIN_LLM_MODEL")
@@ -300,8 +305,7 @@ async def chat_brain_heart_system(request: ChatMessage = Body(...)):
         
         if result["success"]:
             
-            logging.info(f"✅ Brain-Heart response generated in {result.get('total_time', 0):.2f} seconds")
-            logging.info(f"🧠 Brain-Heart response: {result['response']}")
+            safe_log_response(result, level='info')
             return JSONResponse(content=result, status_code=200)
         else:
             return JSONResponse(
@@ -316,6 +320,75 @@ async def chat_brain_heart_system(request: ChatMessage = Body(...)):
             status_code=500
         )
 
+# Additional utility endpoints
+
+
+
+@router.get("/chat/memory/{user_id}")
+async def get_user_memory(user_id: str):
+    """Get memory summary for a specific user"""
+    
+    try:
+        # You'll need to access the brain agent instance
+        # This assumes it's available through some dependency injection or global state
+        agents = await create_agents_async(
+            config=None,  # Your config here
+            brain_model_config=None,  # Your brain model config
+            heart_model_config=None,  # Your heart model config
+            web_model_config=None,  # Your web model config
+            use_premium_search=False
+        )
+        
+        if agents["status"] != "success":
+            return JSONResponse(
+                content={"error": f"Failed to create agents: {agents['error']}"}, 
+                status_code=500
+            )
+        
+        memory_summary = agents["brain_agent"].get_memory_summary()
+        
+        return JSONResponse(content={
+            "user_id": user_id,
+            "memory_summary": memory_summary
+        }, status_code=200)
+        
+    except Exception as e:
+        logging.error(f"❌ Memory retrieval failed: {str(e)}")
+        return JSONResponse(
+            content={"error": f"Memory retrieval failed: {str(e)}"}, 
+            status_code=500
+        )
+
+@router.post("/chat/single-query")
+async def chat_single_query_legacy(query: str = Body(...), user_id: str = Body(...)):
+    """Legacy endpoint for single query processing (backward compatibility)"""
+    
+    try:
+        # Convert single query to messages format
+        messages = [{"role": "user", "content": query}]
+        
+        # Create a mock ChatMessage request
+        class MockUserQuery:
+            def __init__(self, messages):
+                self.messages = [QueryMessage(role=msg["role"], content=msg["content"]) for msg in messages]
+        
+        class MockChatMessage:
+            def __init__(self, userid, user_query):
+                self.userid = userid
+                self.user_query = user_query
+        
+        mock_request = MockChatMessage(user_id, MockUserQuery(messages))
+        
+        # Process through the Brain-Heart system
+        return await chat_brain_heart_system(mock_request)
+        
+    except Exception as e:
+        safe_log_error(e, context={'endpoint': 'single_query_processing'})
+        return JSONResponse(
+            content={"error": "Single query processing failed"}, 
+            status_code=500
+        )
+        
 
 
 @router.get("/get-collections")

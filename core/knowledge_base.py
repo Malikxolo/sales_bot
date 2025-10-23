@@ -2,6 +2,7 @@
 Knowledge Base Creation - Adapted for Brain-Heart Deep Research System
 User-specific vector database creation using ChromaDB + LangChain
 ENHANCED: PDF + DOCX Support + Chroma Cloud Support + Multi-User Isolation
+SECURITY: Path sanitization to prevent directory traversal attacks
 """
 
 import os
@@ -18,6 +19,14 @@ from langchain_community.embeddings import SentenceTransformerEmbeddings
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain.schema import Document
+
+# Import path security utilities
+from core.path_security import (
+    sanitize_path_component,
+    create_safe_user_path,
+    validate_safe_path,
+    sanitize_filename
+)
 
 # Multi-format document loaders with graceful fallback
 try:
@@ -82,13 +91,17 @@ class KnowledgeBaseManager:
         try:
             logger.info(f"Starting knowledge base creation for user {user_id}, collection: {collection_name}")
             
+            # SECURITY: Sanitize user inputs to prevent directory traversal
+            safe_user_id = sanitize_path_component(user_id)
+            safe_collection_name = sanitize_path_component(collection_name)
+            
             # Extract file names from file paths
             file_names = [os.path.basename(file_path) for file_path in file_paths]
             
-            # 1. Setup user-specific paths
-            user_path = os.path.join(self.base_path, user_id)
-            collection_path = os.path.join(user_path, collection_name)
-            chroma_db_path = os.path.join(collection_path, "chroma_db")
+            # 1. Setup user-specific paths with security validation
+            user_path = create_safe_user_path(self.base_path, safe_user_id)
+            collection_path = create_safe_user_path(self.base_path, safe_user_id, safe_collection_name)
+            chroma_db_path = validate_safe_path(collection_path, "chroma_db")
             
             # Ensure directories exist
             os.makedirs(chroma_db_path, exist_ok=True)
@@ -117,13 +130,13 @@ class KnowledgeBaseManager:
             
             # 4. Create embeddings and vector store
             logger.info("Creating embeddings and ChromaDB vector store...")
-            result = self._create_vector_store(texts, chroma_db_path, collection_name, user_id)
+            result = self._create_vector_store(texts, chroma_db_path, safe_collection_name, safe_user_id)
             
             if result["success"]:
                 # 5. Store metadata
                 metadata = {
-                    "user_id": user_id,
-                    "collection_name": collection_name,
+                    "user_id": safe_user_id,
+                    "collection_name": safe_collection_name,
                     "snippet": texts[0].page_content[:50] if texts else "",
                     "file_count": len(file_paths),
                     "file_names": file_names,
@@ -138,15 +151,22 @@ class KnowledgeBaseManager:
                 
                 self._save_metadata(collection_path, metadata)
                 
-                logger.info(f"Knowledge base created successfully: {collection_name}")
+                logger.info(f"Knowledge base created successfully: {safe_collection_name}")
                 return {
                     "success": True,
-                    "message": f"Knowledge base '{collection_name}' created successfully",
+                    "message": f"Knowledge base '{safe_collection_name}' created successfully",
                     "metadata": metadata
                 }
             else:
                 return result
                 
+        except ValueError as ve:
+            # Security validation error
+            logger.error(f"Security validation failed: {ve}")
+            return {
+                "success": False,
+                "error": f"Invalid input: {str(ve)}"
+            }
         except Exception as e:
             logger.error(f"Failed to create knowledge base: {e}")
             return {
@@ -350,8 +370,12 @@ class KnowledgeBaseManager:
     def get_collection_info(self, user_id: str, collection_name: str) -> Optional[Dict[str, Any]]:
         """Get information about user's collection"""
         try:
-            collection_path = os.path.join(self.base_path, user_id, collection_name)
-            metadata_file = os.path.join(collection_path, "knowledge_base_metadata.json")
+            # SECURITY: Sanitize inputs
+            safe_user_id = sanitize_path_component(user_id)
+            safe_collection_name = sanitize_path_component(collection_name)
+            
+            collection_path = create_safe_user_path(self.base_path, safe_user_id, safe_collection_name)
+            metadata_file = validate_safe_path(collection_path, "knowledge_base_metadata.json")
             
             if os.path.exists(metadata_file):
                 import json
@@ -361,6 +385,9 @@ class KnowledgeBaseManager:
             
             return None
             
+        except ValueError as ve:
+            logger.error(f"Security validation failed: {ve}")
+            return None
         except Exception as e:
             logger.error(f"Error getting collection info: {e}")
             return None
@@ -374,14 +401,18 @@ class KnowledgeBaseManager:
     ) -> Dict[str, Any]:
         """Query user's knowledge base collection with user isolation"""
         try:
-            collection_path = os.path.join(self.base_path, user_id, collection_name)
-            chroma_db_path = os.path.join(collection_path, "chroma_db")
+            # SECURITY: Sanitize inputs
+            safe_user_id = sanitize_path_component(user_id)
+            safe_collection_name = sanitize_path_component(collection_name)
+            
+            collection_path = create_safe_user_path(self.base_path, safe_user_id, safe_collection_name)
+            chroma_db_path = validate_safe_path(collection_path, "chroma_db")
             
             # Use smart client selection
             db = self._get_chroma_client(path=chroma_db_path)
             
             # Use namespaced collection name for user isolation
-            namespaced_name = self._get_namespaced_collection_name(user_id, collection_name)
+            namespaced_name = self._get_namespaced_collection_name(safe_user_id, safe_collection_name)
             collection = db.get_collection(name=namespaced_name)
             
             # Perform query
@@ -390,7 +421,7 @@ class KnowledgeBaseManager:
                 n_results=n_results
             )
             
-            logger.info(f"Query executed for user {user_id}, collection {collection_name}: {len(results['documents'][0])} results")
+            logger.info(f"Query executed for user {safe_user_id}, collection {safe_collection_name}: {len(results['documents'][0])} results")
             
             return {
                 "success": True,
@@ -400,6 +431,13 @@ class KnowledgeBaseManager:
                 "distances": results['distances'][0] if results['distances'] else []
             }
             
+        except ValueError as ve:
+            logger.error(f"Security validation failed: {ve}")
+            return {
+                "success": False,
+                "error": f"Invalid input: {str(ve)}",
+                "results": []
+            }
         except Exception as e:
             logger.error(f"Error querying collection: {e}")
             return {
@@ -604,14 +642,20 @@ def query_knowledge_base(user_id: str, collection_name: str, query: str, n_resul
 def get_user_collections(user_id: str) -> List[str]:
     """Get list of user's collections"""
     try:
-        user_path = os.path.join("db_collection", user_id)
+        # SECURITY: Sanitize user_id
+        safe_user_id = sanitize_path_component(user_id)
+        
+        user_path = create_safe_user_path("db_collection", safe_user_id)
         if os.path.exists(user_path):
             collections = [d for d in os.listdir(user_path) if os.path.isdir(os.path.join(user_path, d))]
-            logger.info(f"Found {len(collections)} collections for user {user_id}: {collections}")
+            logger.info(f"Found {len(collections)} collections for user {safe_user_id}: {collections}")
             return collections
         else:
-            logger.info(f"No directory found for user {user_id}")
+            logger.info(f"No directory found for user {safe_user_id}")
             return []
+    except ValueError as ve:
+        logger.error(f"Security validation failed: {ve}")
+        return []
     except Exception as e:
         logger.error(f"Error getting collections for user {user_id}: {e}")
         return []
