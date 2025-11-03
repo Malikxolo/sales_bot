@@ -18,6 +18,7 @@ from abc import ABC, abstractmethod
 from .exceptions import ToolExecutionError
 from .quota_manager import QuotaManager
 from .llm_client import LLMClient
+from .knowledge_base import query_documents, get_collection_cache, get_org_cache
 from .web_search_agent import search_perplexity
 import ast
 from redis.asyncio import Redis
@@ -821,26 +822,17 @@ class RAGTool(BaseTool):
                     "query": query
                 }
             
-            from .knowledge_base import query_knowledge_base, get_user_collections, get_active_collection, set_active_collection
             
-            # Check if user has any collections
             logger.debug(f"Checking collections for user: {user_id}")
-            collections = get_user_collections(user_id)
-            
-            if not collections:
-                logger.warning(f"RAG query: No collections found for user {user_id}")
-                return {
-                    "success": False,
-                    "error": "No knowledge base found. Please upload documents first.",
-                    "query": query
-                }
-            collection_name = get_active_collection(user_id)
-            if not collection_name or collection_name not in collections:
-                collection_name = collections[0]
-            logger.info(f"RAG querying collection '{collection_name}' for user {user_id}")
+            org_id = await get_org_cache(user_id)
+            if not org_id:
+                org_id = "default_org"
+            collection_name = await get_collection_cache(user_id)
+            if not collection_name:
+                collection_name = "default_collection"
             
             # Query the user's collection
-            result = query_knowledge_base(user_id, collection_name, query, n_results=5)
+            result = query_documents(org_id, collection_name, query, user_id, n_results=5)
             
             if result["success"]:
                 chunks_count = len(result["results"])

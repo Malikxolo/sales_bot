@@ -210,7 +210,7 @@ class OrganizationManager:
         creator_id: str
     ) -> Dict[str, Any]:
         """
-        Create a new organization
+        Create a new organization or return existing if user is the owner
         
         Args:
             org_name: Name of the organization
@@ -222,11 +222,38 @@ class OrganizationManager:
                 "success": bool,
                 "org_id": str,
                 "invite_code": str,
+                "is_existing": bool,
                 "error": str (if failed)
             }
         """
         try:
-            # Generate IDs
+            # Check if organization with this name already exists
+            existing_org = await asyncio.to_thread(
+                self.organizations.find_one,
+                {"org_name": org_name}
+            )
+            
+            if existing_org:
+                # Check if the user is the owner
+                if existing_org.get("owner_id") == creator_id:
+                    # User is the owner, return existing org details
+                    return {
+                        "success": True,
+                        "org_id": existing_org["org_id"],
+                        "org_name": existing_org["org_name"],
+                        "invite_code": existing_org["invite_code"],
+                        "role": "owner",
+                        "is_existing": True,
+                        "message": f"Organization '{org_name}' already exists and you are the owner"
+                    }
+                else:
+                    # User is not the owner
+                    return {
+                        "success": False,
+                        "error": f"Organization '{org_name}' already exists and you are not the owner"
+                    }
+            
+            # Organization doesn't exist, create new one
             org_id = self._generate_org_id(org_name)
             invite_code = await self._generate_invite_code(org_name)
             
@@ -259,15 +286,35 @@ class OrganizationManager:
                 "org_id": org_id,
                 "org_name": org_name,
                 "invite_code": invite_code,
-                "role": "owner"
+                "role": "owner",
+                "is_existing": False,
+                "message": f"Organization '{org_name}' created successfully"
             }
             
         except DuplicateKeyError:
-            return {
-                "success": False,
-                "error": f"Organization '{org_name}' already exists"
-            }
+            
+            existing_org = await asyncio.to_thread(
+                self.organizations.find_one,
+                {"org_name": org_name}
+            )
+            
+            if existing_org and existing_org.get("owner_id") == creator_id:
+                return {
+                    "success": True,
+                    "org_id": existing_org["org_id"],
+                    "org_name": existing_org["org_name"],
+                    "invite_code": existing_org["invite_code"],
+                    "role": "owner",
+                    "is_existing": True,
+                    "message": f"Organization '{org_name}' already exists and you are the owner"
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Organization '{org_name}' already exists and you are not the owner"
+                }
         except Exception as e:
+            logger.error(f"Failed to create organization: {e}")
             return {
                 "success": False,
                 "error": f"Failed to create organization: {str(e)}"

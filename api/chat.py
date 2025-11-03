@@ -4,7 +4,7 @@ from fastapi_limiter import FastAPILimiter
 from fastapi_limiter.depends import RateLimiter
 from redis.asyncio import Redis
 from contextlib import asynccontextmanager
-from langchain_core.messages import HumanMessage, AIMessage
+
 
 # Updated imports for new knowledge base manager
 from core.knowledge_base import (
@@ -23,6 +23,10 @@ from core.knowledge_base import (
     batch_upload_documents,
     get_documents_by_metadata,
     export_collection,
+    set_org_cache,
+    set_collection_cache,
+    get_org_cache,
+    get_collection_cache,
     kb_manager
 )
 
@@ -104,6 +108,7 @@ async def lifespan(app: FastAPI):
         chroma_client=chroma_client,
         mongo_client=mongo_client,
         org_manager=org_manager,
+        redis_client=redis_client,
         database_name="knowledge_base"
     )
     await kb_manager.create_global_collection()
@@ -280,6 +285,8 @@ async def create_collection_endpoint(
         )
         
         if result.get("success"):
+            res = await set_collection_cache(user_id, collection_name)
+            logging.info(f"Collection cached for user {user_id}: {res}")
             return JSONResponse(
                 content={
                     "message": f"Collection '{collection_name}' created successfully!",
@@ -930,6 +937,12 @@ async def get_organization_info(org_id: str):
         )
         
 
+from fastapi import Query, Body, Path
+
+# ============================================================================
+# ORGANIZATION ENDPOINTS
+# ============================================================================
+
 @router.post("/organizations/create")
 async def create_organization_endpoint(
     org_name: str = Body(..., embed=True),
@@ -943,17 +956,22 @@ async def create_organization_endpoint(
         result = await create_organization(org_name, user_name, user_id)
         
         if result.get("success"):
+            logging.info(f"Organization created with ID: {result.get('org_id')}")
+            org_data = await set_org_cache(user_id, result.get("org_id"))
+            logging.info(f"Organization cached for user {user_id}: {org_data}")
             return JSONResponse(
                 content={
                     "organization_id": result.get("org_id"),
-                    "invite_code": result.get("invite_code")
+                    "invite_code": result.get("invite_code"),
+                    "is_existing": result.get("is_existing", False),
+                    "message": result.get("message")
                 }, 
                 status_code=200
             )
         else:
             return JSONResponse(
                 content={"error": result.get("error")}, 
-                status_code=500
+                status_code=400
             )
             
     except Exception as e:
@@ -962,7 +980,8 @@ async def create_organization_endpoint(
             content={"error": str(e)}, 
             status_code=500
         )
-        
+
+
 @router.post("/organizations/join")
 async def join_organization_endpoint(
     invite_code: str = Body(..., embed=True),
@@ -976,16 +995,21 @@ async def join_organization_endpoint(
         result = await join_organization(invite_code, user_name, user_id)
         
         if result.get("success"):
+            # Cache the organization for the user
+            await set_org_cache(user_id, result.get("org_id"))
+            logging.info(f"User {user_id} joined organization {result.get('org_id')}")
+            
             return JSONResponse(
                 content={
-                    "organization_id": result.get("org_id")
+                    "organization_id": result.get("org_id"),
+                    "message": "Successfully joined organization"
                 }, 
                 status_code=200
             )
         else:
             return JSONResponse(
                 content={"error": result.get("error")}, 
-                status_code=500
+                status_code=400
             )
             
     except Exception as e:
@@ -997,11 +1021,14 @@ async def join_organization_endpoint(
 
 
 @router.delete("/organizations/{org_id}")
-async def remove_organization_endpoint(org_id: str):
+async def remove_organization_endpoint(
+    org_id: str = Path(..., description="Organization ID to delete")
+):
     """
     Delete an organization by org_id.
     """
     try:
+        logging.info(f"Attempting to delete organization: {org_id}")
         result = await delete_organization(org_id)
         
         if result.get("success"):
@@ -1012,11 +1039,145 @@ async def remove_organization_endpoint(org_id: str):
         else:
             return JSONResponse(
                 content={"error": result.get("error")}, 
-                status_code=500
+                status_code=400
             )
             
     except Exception as e:
         logging.error(f"Error deleting organization: {e}")
+        return JSONResponse(
+            content={"error": str(e)}, 
+            status_code=500
+        )
+
+
+@router.get("/organizations/get-org/{user_id}")
+async def get_active_organization_endpoint(
+    user_id: str = Path(..., description="User ID to get organization for")
+):
+    """
+    Get organization information for a user.
+    """
+    try:
+        logging.info(f"Fetching organization data from cache for user {user_id}")
+        org_data = await get_org_cache(user_id)
+        logging.info(f"Retrieved organization data from cache for user {user_id}: {org_data}")
+        
+        if org_data:
+            return JSONResponse(
+                content={"organization": org_data},
+                status_code=200
+            )
+        else:
+            return JSONResponse(
+                content={"error": "Organization not found for user"}, 
+                status_code=404
+            )
+            
+    except Exception as e:
+        logging.error(f"Error getting organization for user: {e}")
+        return JSONResponse(
+            content={"error": str(e)}, 
+            status_code=500
+        )
+
+
+@router.patch("/organizations/set")
+async def set_active_organization_endpoint(
+    org_id: str = Body(..., embed=True),
+    user_id: str = Body(..., embed=True)
+):
+    """
+    Set active organization for a user in cache.
+    """
+    try:
+        logging.info(f"Setting organization {org_id} for user {user_id}")
+        
+        if not org_id:
+            return JSONResponse(
+                content={"error": "Organization ID is required"}, 
+                status_code=400
+            )
+        
+        await set_org_cache(user_id, org_id)
+        return JSONResponse(
+            content={
+                "message": "Organization set in cache successfully",
+                "org_id": org_id
+            },
+            status_code=200
+        )
+            
+    except Exception as e:
+        logging.error(f"Error setting organization in cache: {e}")
+        return JSONResponse(
+            content={"error": str(e)}, 
+            status_code=500
+        )
+
+
+# ============================================================================
+# COLLECTION ENDPOINTS
+# ============================================================================
+
+@router.get("/collections/get-collection/{user_id}")
+async def get_active_collection_endpoint(
+    user_id: str = Path(..., description="User ID to get collection for")
+):
+    """
+    Get collection information for a user.
+    """
+    try:
+        logging.info(f"Fetching collection data from cache for user {user_id}")
+        collection_data = await get_collection_cache(user_id)
+        logging.info(f"Retrieved collection data from cache for user {user_id}: {collection_data}")
+        
+        if collection_data:
+            return JSONResponse(
+                content={"collection": collection_data},
+                status_code=200
+            )
+        else:
+            return JSONResponse(
+                content={"error": "Collection not found for user"}, 
+                status_code=404
+            )
+            
+    except Exception as e:
+        logging.error(f"Error getting collection for user: {e}")
+        return JSONResponse(
+            content={"error": str(e)}, 
+            status_code=500
+        )
+
+
+@router.patch("/collections/set")
+async def set_active_collection_endpoint(
+    collection_name: str = Body(..., embed=True),
+    user_id: str = Body(..., embed=True)
+):
+    """
+    Set active collection for a user in cache.
+    """
+    try:
+        logging.info(f"Setting collection {collection_name} for user {user_id}")
+        
+        if not collection_name:
+            return JSONResponse(
+                content={"error": "Collection name is required"}, 
+                status_code=400
+            )
+        
+        await set_collection_cache(user_id, collection_name)
+        return JSONResponse(
+            content={
+                "message": "Collection set in cache successfully",
+                "collection_name": collection_name
+            },
+            status_code=200
+        )
+            
+    except Exception as e:
+        logging.error(f"Error setting collection in cache: {e}")
         return JSONResponse(
             content={"error": str(e)}, 
             status_code=500

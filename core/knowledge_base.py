@@ -13,6 +13,8 @@ from chromadb.utils import embedding_functions
 from pymongo import MongoClient
 import hashlib
 import logging
+from os import getenv, path
+from redis.asyncio import Redis
 logger = logging.getLogger(__name__)
 
 
@@ -27,6 +29,7 @@ class KnowledgeBaseManager:
         chroma_client: chromadb.Client,
         mongo_client: MongoClient,
         org_manager,
+        redis_client: Redis,
         embedding_function=None,
         database_name: str = "knowledge_base"
     ):
@@ -36,6 +39,7 @@ class KnowledgeBaseManager:
         Args:
             chroma_client: ChromaDB client instance
             mongo_client: MongoDB client instance
+            redis_client: Redis client instance
             org_manager: OrganizationManager instance
             embedding_function: Embedding function for ChromaDB (default: sentence-transformers)
             database_name: MongoDB database name
@@ -43,6 +47,7 @@ class KnowledgeBaseManager:
         self.chroma_client = chroma_client
         self.mongo_client = mongo_client
         self.org_manager = org_manager
+        self.redis_client = redis_client
         self.db = mongo_client[database_name]
         
         # MongoDB collections
@@ -81,6 +86,22 @@ class KnowledgeBaseManager:
         if team_id:
             return f"{org_id}_{team_id}"
         return f"{org_id}_global"
+    
+    async def _set_org_cache(self, org_id:str, user_id:str):
+        """Set organization data in Redis cache"""
+        return await self.redis_client.set(user_id, org_id)
+        
+    async def _get_org_cache(self, user_id:str) -> Optional[str]:
+        """Get organization data from Redis cache"""
+        return await self.redis_client.get(user_id)
+    
+    async def _set_collection_cache(self, collection_name:str, user_id:str):
+        """Set collection data in Redis cache"""
+        return await self.redis_client.set(user_id, collection_name)
+        
+    async def _get_collection_cache(self, user_id:str) -> Optional[str]:
+        """Get collection data from Redis cache"""
+        return await self.redis_client.get(user_id)
     
     async def create_global_collection(self):
         """
@@ -131,7 +152,7 @@ class KnowledgeBaseManager:
         metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Create a new knowledge base collection
+        Create a new knowledge base collection or return existing if created by same user
         
         Args:
             org_id: Organization ID
@@ -142,7 +163,14 @@ class KnowledgeBaseManager:
             metadata: Additional metadata
         
         Returns:
-            {"success": bool, "collection_id": str, "error": str}
+            {
+                "success": bool, 
+                "collection_id": str, 
+                "chroma_collection_name": str,
+                "is_existing": bool,
+                "message": str,
+                "error": str
+            }
         """
         try:
             # Check permission
@@ -162,9 +190,6 @@ class KnowledgeBaseManager:
                 if user_team_id != team_id and org.get("owner_id") != user_id:
                     return {"success": False, "error": "Access denied to this team"}
             
-            # Generate ChromaDB collection name
-            chroma_collection_name = self._get_collection_name(org_id, team_id)
-            
             # Check if collection already exists
             existing = await asyncio.to_thread(
                 self.collections_metadata.find_one,
@@ -172,7 +197,32 @@ class KnowledgeBaseManager:
             )
             
             if existing:
-                return {"success": False, "error": "Collection name already exists in this organization"}
+                # Check if the user is the creator
+                if existing.get("created_by") == user_id:
+                    # User created this collection, return existing details
+                    return {
+                        "success": True,
+                        "collection_id": existing["collection_id"],
+                        "collection_name": existing["collection_name"],
+                        "description": existing.get("description", ""),
+                        "chroma_collection_name": existing["chroma_collection_name"],
+                        "team_id": existing.get("team_id"),
+                        "document_count": existing.get("document_count", 0),
+                        "created_at": existing.get("created_at").isoformat() if existing.get("created_at") else None,
+                        "is_existing": True,
+                        "message": f"Collection '{collection_name}' already exists and you are the creator"
+                    }
+                else:
+                    # Someone else created this collection
+                    creator_name = existing.get("created_by", "another user")
+                    return {
+                        "success": False,
+                        "error": f"Collection '{collection_name}' already exists in this organization (created by {creator_name})"
+                    }
+            
+            # Collection doesn't exist, create new one
+            # Generate ChromaDB collection name
+            chroma_collection_name = self._get_collection_name(org_id, team_id)
             
             # Create ChromaDB collection
             chroma_collection = await asyncio.to_thread(
@@ -205,10 +255,17 @@ class KnowledgeBaseManager:
             return {
                 "success": True,
                 "collection_id": collection_id,
-                "chroma_collection_name": chroma_collection_name
+                "collection_name": collection_name,
+                "description": description,
+                "chroma_collection_name": chroma_collection_name,
+                "team_id": team_id,
+                "document_count": 0,
+                "is_existing": False,
+                "message": f"Collection '{collection_name}' created successfully"
             }
             
         except Exception as e:
+            logger.error(f"Failed to create collection: {e}")
             return {"success": False, "error": str(e)}
     
     async def upload_documents(
@@ -328,6 +385,7 @@ class KnowledgeBaseManager:
             
         except Exception as e:
             return {"success": False, "error": str(e)}
+        
     
     async def query_documents(
         self,
@@ -503,10 +561,10 @@ class KnowledgeBaseManager:
             return {"success": False, "error": str(e)}
     
     async def delete_collection(
-        self,
-        org_id: str,
-        collection_name: str,
-        user_id: str
+    self,
+    org_id: str,
+    collection_name: str,
+    user_id: str
     ) -> Dict[str, Any]:
         """
         Delete an entire collection
@@ -522,9 +580,8 @@ class KnowledgeBaseManager:
         try:
             # Check permission
             has_permission = await self.org_manager.check_permission(org_id, user_id, "delete_collection")
-            logger.info(self.chroma_client.list_collections())
+            logger.info("Existing collections: %s", self.chroma_client.list_collections())
 
-            
             if not has_permission:
                 return {"success": False, "error": "Permission denied"}
             
@@ -545,12 +602,20 @@ class KnowledgeBaseManager:
                 if user_team_id != team_id and org.get("owner_id") != user_id:
                     return {"success": False, "error": "Access denied to this team's collection"}
             
-            # Delete ChromaDB collection
+            # Delete ChromaDB collection (ignore if not exists)
             chroma_collection_name = collection_meta["chroma_collection_name"]
-            await asyncio.to_thread(
-                self.chroma_client.delete_collection,
-                name=chroma_collection_name
-            )
+            try:
+                await asyncio.to_thread(
+                    self.chroma_client.delete_collection,
+                    name=chroma_collection_name
+                )
+            except Exception as chroma_error:
+                # Only ignore if it's a 'not found' kind of error
+                error_str = str(chroma_error).lower()
+                if "not found" in error_str or "does not exist" in error_str or "no such collection" in error_str:
+                    logger.warning(f"Chroma collection '{chroma_collection_name}' does not exist, skipping deletion.")
+                else:
+                    raise  # re-raise unexpected errors
             
             # Delete all documents from MongoDB
             await asyncio.to_thread(
@@ -567,7 +632,9 @@ class KnowledgeBaseManager:
             return {"success": True}
             
         except Exception as e:
+            logger.exception("Error deleting collection: %s", e)
             return {"success": False, "error": str(e)}
+
     
     async def list_collections(
         self,
@@ -1247,6 +1314,7 @@ def initialize_kb_manager(
     chroma_client: chromadb.Client,
     mongo_client: MongoClient,
     org_manager,
+    redis_client,
     embedding_function=None,
     database_name: str = "knowledge_base"
 ) -> KnowledgeBaseManager:
@@ -1257,6 +1325,7 @@ def initialize_kb_manager(
         chroma_client: ChromaDB client
         mongo_client: MongoDB client
         org_manager: OrganizationManager instance
+        redis_client: Redis client
         embedding_function: Optional embedding function
         database_name: MongoDB database name
     
@@ -1268,6 +1337,7 @@ def initialize_kb_manager(
         chroma_client=chroma_client,
         mongo_client=mongo_client,
         org_manager=org_manager,
+        redis_client=redis_client,
         embedding_function=embedding_function,
         database_name=database_name
     )
@@ -1426,6 +1496,32 @@ async def batch_upload_documents(
     if kb_manager is None:
         raise Exception("KnowledgeBaseManager not initialized. Call initialize_kb_manager() first.")
     return await kb_manager.batch_upload_documents(org_id, collection_name, user_id, documents, batch_size, metadatas)
+
+
+async def get_org_cache(user_id: str) -> Optional[str]:
+    """Get organization ID from cache for a user"""
+    if kb_manager is None:
+        raise Exception("KnowledgeBaseManager not initialized. Call initialize_kb_manager() first.")
+    return await kb_manager._get_org_cache(f"org_{user_id}")
+
+async def set_org_cache(user_id: str, org_id: str) -> None:
+    """Set organization ID in cache for a user"""
+    if kb_manager is None:
+        raise Exception("KnowledgeBaseManager not initialized. Call initialize_kb_manager() first.")
+    return await kb_manager._set_org_cache(org_id, f"org_{user_id}")
+    
+async def get_collection_cache(user_id: str) -> Optional[str]:
+    """Get collection name from cache for a user"""
+    if kb_manager is None:
+        raise Exception("KnowledgeBaseManager not initialized. Call initialize_kb_manager() first.")
+    return await kb_manager._get_collection_cache(f"collection_{user_id}")
+
+async def set_collection_cache(user_id: str, collection_name: str) -> None:
+    """Set collection name in cache for a user"""
+    if kb_manager is None:
+        raise Exception("KnowledgeBaseManager not initialized. Call initialize_kb_manager() first.")
+    return await kb_manager._set_collection_cache(collection_name, f"collection_{user_id}")
+
 
 
 async def get_documents_by_metadata(
