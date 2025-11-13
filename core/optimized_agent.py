@@ -96,7 +96,7 @@ class OptimizedAgent:
         logger.info(f"Router LLM: {'DEDICATED ✅' if router_llm else 'SHARED (heart_llm) ⚠️'}")
         logger.info(f"Redis caching: {'ENABLED ✅' if self.cache_manager.enabled else 'DISABLED ⚠️'}")
     
-    async def process_query(self, query: str, chat_history: List[Dict] = None, user_id: str = None, mode:str = None) -> Dict[str, Any]:
+    async def process_query(self, query: str, chat_history: List[Dict] = None, user_id: str = None, mode:str = None, source: str = "whatsapp") -> Dict[str, Any]:
         """Process query with minimal LLM calls and Redis caching"""
         self._start_worker_if_needed()
         logger.info(f" PROCESSING QUERY: '{query}'")
@@ -271,7 +271,8 @@ class OptimizedAgent:
                 tool_results,
                 chat_history,
                 memories=memories,
-                mode=mode
+                mode=mode,
+                source=source
             )
             
             await self.task_queue.put(
@@ -524,12 +525,18 @@ ANALYZE:
    - Length: micro/short/medium/detailed
    - Language: hinglish/english/professional/casual
 
+6. Is this a follow-up query?
+   - Look at conversation history: Does current query build on previous topics?
+   - Follow-up = asking for details, clarification, or diving deeper into what was discussed
+   - New query = completely different topic or no conversation history
+
 Return ONLY valid JSON:
 {{
   "multi_task_analysis": {{
     "multi_task_detected": true or false,
     "sub_tasks": ["task 1", "task 2"]
   }},
+  "is_follow_up": true or false,
   "semantic_intent": "what user wants",
   "expansion_reasoning": "kept simple - straightforward query",
   "business_opportunity": {{
@@ -755,6 +762,13 @@ THINK THROUGH THESE QUESTIONS (use your intelligence, not rules):
    - How much detail do they need? (brief, moderate, comprehensive)
    - What language style fits? (formal english, casual english, hinglish)
 
+8. IS THIS A FOLLOW-UP QUERY?
+   Look at CONVERSATION HISTORY above:
+   - Does the current query build on previous topics discussed?
+   - Is user asking for details, clarification, or diving deeper into what was already talked about?
+   - Or is this a completely new topic/question?
+   Set is_follow_up to true only if genuinely continuing previous conversation.
+
 FINAL CHECK BEFORE YOU OUTPUT:
 - Did I find ALL dimensions of this query?
 - Am I being generous with search count or conservative? (Be generous!)
@@ -769,6 +783,7 @@ OUTPUT THIS EXACT JSON STRUCTURE:
     "multi_task_detected": true or false,
     "sub_tasks": ["description of task 1", "description of task 2"]
   }},
+  "is_follow_up": true or false,
   "semantic_intent": "clear description of overall user goal",
   "expansion_reasoning": "your thought process why keeping simple OR why adding more searches",
   "business_opportunity": {{
@@ -1129,7 +1144,7 @@ Think through each question naturally, then return ONLY the JSON. No other text.
             return original_query
 
     
-    async def _generate_response(self, query: str, analysis: Dict, tool_results: Dict, chat_history: List[Dict], memories:str="", mode:str="") -> str:
+    async def _generate_response(self, query: str, analysis: Dict, tool_results: Dict, chat_history: List[Dict], memories:str="", mode:str="", source: str = "whatsapp") -> str:
         """Generate response with simple business mode switching like old system"""
         
         # Extract key elements
@@ -1300,7 +1315,7 @@ Think through each question naturally, then return ONLY the JSON. No other text.
             🎯 RESPONSE RULES:
 
             CORE PRINCIPLES:
-            1. NEVER echo/restate what user said
+            1. Start with value, not preamble. Jump directly into insights - skip conversational setup that repeats their question back to them. They already know what they asked.
             2. NEVER announce tool usage ("Let me search...", "I found...")
             3. Match emotional energy PRECISELY using sentiment guide
             4. Stay in character as their dost
@@ -1343,6 +1358,8 @@ Think through each question naturally, then return ONLY the JSON. No other text.
             ✅ DO: Sound like smart friend who knows solutions, build relationships, use data invisibly, match communication style, create value even if no sale today
 
             USER QUERY: {query}
+
+            {'WHATSAPP CONTEXT: You are communicating via WhatsApp where brevity is essential for mobile engagement. ' + ('This is a FOLLOW-UP query - user wants depth on previous discussion. Provide 350-450 character response with comprehensive insights, examples, and actionable details. Use the space fully.' if analysis.get('is_follow_up', False) else 'This is an INITIAL query - create engagement spark. Compress response to 200-250 characters maximum - deliver the most critical insight that invites further conversation. Platform constraints override data volume.') if source == 'whatsapp' else ''}
 
             NOW RESPOND as Mochand Dost in {conversation_mode} mode. Be natural, helpful, strategic, human. If business opportunity exists, weave it like a skilled storyteller - make them see value without feeling sold to. If casual chat, be the best dost ever.
             Remember: You're building relationships that could turn into business. Play it smart, smooth, genuine."""
