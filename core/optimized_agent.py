@@ -673,10 +673,9 @@ Return ONLY valid JSON:
 }}"""
         try:
             logger.info(f"💨 SIMPLE ANALYSIS (Llama Fast Path)")
-            context.append({"role": "user", "content": analysis_prompt})
             
             response = await self.router_llm.generate(
-                messages=context,
+                messages=[{"role": "user", "content": analysis_prompt}],
                 system_prompt=f"You analyze queries as of {current_date}. Return valid JSON only.",
                 temperature=0.1,
                 max_tokens=4000
@@ -924,17 +923,16 @@ Now analyze: {query}
 Think through each question naturally, then return ONLY the JSON. No other text."""
 
         try:
-            
+            # messages = []
             
             # Simple system prompt for thinking models
             system_prompt = f"""You are analyzing queries as of {current_date}. Think step by step, then output valid JSON only."""
             
-            
-            messages = chat_history[-2:] if chat_history else [] 
-            messages.append({"role": "user", "content": analysis_prompt})
+            # messages.append({"role": "system", "content": system_prompt})
+            # messages.append({"role": "user", "content": analysis_prompt})
             
             response = await self.brain_llm.generate(
-                messages=messages,
+                messages=[{"role": "user", "content": analysis_prompt}],
                 system_prompt=system_prompt,
                 temperature=0.1,
                 max_tokens=16000
