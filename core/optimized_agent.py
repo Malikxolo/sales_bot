@@ -451,7 +451,11 @@ Return ONLY valid JSON:
         context = chat_history[-2:] if chat_history else []
         current_date = datetime.now().strftime("%B %d, %Y")
         
-        analysis_prompt = f"""Analyze this query for Mochan-D - an AI chatbot that automates customer support across WhatsApp, Facebook, Instagram with RAG and web search capabilities.
+        analysis_prompt = f"""You are analyzing queries for Mochan-D - an AI chatbot solution that:
+- Automates customer support and sales (24/7 availability)
+- Works across multiple platforms (WhatsApp, Facebook, Instagram, etc.)
+- Uses RAG + Web Search for intelligent responses
+- Serves businesses of all sizes needing to scale customer communication
 
 USER QUERY: {query}
 DATE: {current_date}
@@ -463,38 +467,159 @@ Available tools:
 - rag: Knowledge base retrieval
 - calculator: Math operations
 
-Your task: Provide structured analysis for this query.
+Perform ALL of the following analyses in ONE response:
 
-ANALYZE:
-
-1. What is the user asking for? (semantic intent)
-
-2. Is this related to business communication challenges that AI chatbots solve?
-   - Customer support automation needs
-   - 24/7 availability requirements
-   - Multi-platform management difficulties
-   - Scaling communication challenges
+1. MULTI-TASK DETECTION & DECOMPOSITION:
+   - Analyze the user query to identify if it contains multiple distinct, actionable tasks or questions.
+   - Look for:
+     * Multiple questions separated by "and", "also", "plus", or similar connectors
+     * Different types of information requests (e.g., weather + recommendations, prices + comparisons)
+     * Sequential tasks where one leads to another
+     * Independent tasks that can be handled separately
    
-   If yes, set business_opportunity.detected = true and calculate confidence (0-100)
-   Consider: work context, emotional distress, solution-seeking behavior, scale/urgency
+   - If 2 or more distinct tasks are found:
+     * Set `multi_task_detected` to `true`
+     * List each task clearly in the `sub_tasks` array
+     * Determine if tasks are dependent (sequential) or independent (parallel)
+   
+   - If only one task is found, set `multi_task_detected` to `false`
+   
+   - Examples:
+     * "What's the weather in Lucknow and what should I wear?" → 2 tasks: [weather query, clothing recommendation]
+     * "iPhone 16 price and Samsung S24 price" → 2 tasks: [iPhone pricing, Samsung pricing]
+     * "Compare our product with competitors" → 1 task: [product comparison]
 
-3. What tools are needed?
-   - Use rag if: query about Mochan-D OR business opportunity detected
-   - Use web_search if: needs current data, prices, comparisons, weather
-   - Use calculator if: math operations needed
-   - Use no tools if: greetings, casual chat, general knowledge
+2. SEMANTIC INTENT (overall user goal)
+   - Based on the decomposed tasks, what is the user's ultimate goal?
+   - Synthesize the sub-tasks into a comprehensive understanding of what they want to achieve
+   - Include every specific number, measurement, name, date, and technical detail from the user's query
 
-4. If multiple tools needed, can they run in parallel or must be sequential?
-   - Parallel: Independent tasks
-   - Sequential: One depends on another's output
+3. MOCHAN-D PRODUCT OPPORTUNITY ANALYSIS:
+   Does the user's query relate to problems that Mochan-D's AI chatbot solution can solve?
 
-5. What's the user's emotional state and how should we respond?
-   - Emotion: frustrated/excited/casual/urgent/confused
-   - Personality: empathetic_friend/excited_buddy/helpful_dost/urgent_solver/patient_guide
-   - Length: micro/short/medium/detailed
-   - Language: hinglish/english/professional/casual
 
-6. Is this a follow-up query?
+   MOCHAN-D-SPECIFIC TRIGGERS (check for these pain points):
+   - Customer support automation needs
+   - High customer service costs or staff burden 
+   - Need for 24/7 customer availability
+   - Multiple messaging platform management difficulties (WhatsApp, Facebook, Instagram)
+   - Repetitive customer query handling
+   - Customer engagement/response time issues
+   - Integration needs with CRM/payment systems for customer communication
+   - Scaling customer communication challenges
+
+   CONTEXTUAL TRIGGERS (Score: 50-70):
+    - Mentions competitors
+    - Asks "how to improve..." business processes
+    - Growth/scaling discussions
+    - Team efficiency concerns
+    
+   EMOTIONAL CUES (Score: 40-60):
+   - Frustration → Empathy + solution
+   - Celebration → Join joy, suggest growth
+   - Worry → Reassurance + clarity
+   
+   Set business_opportunity.detected = true if query shows ANY of:
+   - User states a current problem/challenge
+   - User is actively seeking/evaluating solutions
+   - User expresses dissatisfaction with current situation
+   - User mentions "need", "looking for", "considering", "want to improve"
+
+   CONFIDENCE SCORING:
+   composite_confidence = (work_context + emotional_distress + solution_seeking + scale_scope) / 4
+   
+   - work_context: 0-100 (Business vs personal)
+   - emotional_distress: 0-100 (Frustration/stress level)
+   - solution_seeking: 0-100 (Actively looking for help?)
+   - scale_scope: 0-100 (Size/urgency of problem)
+   
+   Score Bands:
+   0-30: No business context → pure_empathy
+   31-50: Ambiguous → empathetic_probing
+   51-70: Possible → gentle_suggestion
+   71-85: Clear pain → soft_pitch
+   86-100: Hot lead → direct_consultation
+
+
+   DO NOT trigger business_opportunity.detected = true for:
+   - Pure research/comparison without context ("Compare X vs Y")
+   - Definition questions ("What is X")
+   - General knowledge inquiries
+   - Personal health, relationships, entertainment
+   - Weather, jokes, casual chat (unless leads to business context)
+   - Pet problems, family issues
+
+
+   If business opportunity detected:
+   - Set business_opportunity.detected = true
+   - Add "rag" to tools_to_use (fetch Mochan-D product docs)
+
+
+   If query is about other business areas (accounting, inventory, website, etc.):
+   - Set business_opportunity.detected = false
+
+4. TOOL SELECTION FOR MULTI-TASK QUERIES:
+
+   For EACH sub-task identified in step 1, select the most appropriate tool:
+   
+   GENERAL TOOL SELECTION:
+   - `web_search`: For current information, prices, comparisons, weather, news, etc.
+   - `calculator`: For mathematical calculations, statistical operations
+   
+    AFTER SELECTING ALL GENERAL TOOLS - APPLY RAG SELECTION (GLOBAL CHECK):
+    Select `rag` if ANY of:
+    1. Any sub-task is directly ABOUT Mochan-D
+    2. OR business_opportunity.detected = true
+    3. OR web_search is selected for ANY sub-task
+    
+    If rag should be added, add ONE `rag` to tools_to_use
+ 
+   IMPORTANT: The `tools_to_use` array should contain one tool for each sub-task.
+   - If you have 2 sub-tasks needing web_search, include ["web_search", "web_search", "rag"]
+   - If you have 1 sub-task needing web_search and 1 needing calculator, include ["web_search", "calculator", "rag"]
+
+   Use NO tools for:
+   - Greetings, casual chat
+   - General knowledge questions that don't require current information
+
+5. SENTIMENT & PERSONALITY:
+   - User's emotional state (frustrated/excited/casual/urgent/confused)
+   - Best response personality (empathetic_friend/excited_buddy/helpful_dost/urgent_solver/patient_guide)
+
+6. RESPONSE STRATEGY:
+   - Response length (micro/short/medium/detailed)
+   - Language style (hinglish/english/professional/casual)
+
+7. TOOL ORCHESTRATION AND EXECUATION PLANNING - CAN DIFFERENT TOOLS RUN TOGETHER?
+   
+   Think about dependencies BETWEEN tool types (not within same tool type):
+   
+   Ask yourself: "Does one tool type NEED results from another tool type to work properly?"
+   
+   - Does web_search need rag data first to search effectively? → sequential
+   - Does rag need web_search results to query properly? → sequential  
+   - Can they work independently with just the user's query? → parallel
+   
+   Default to PARALLEL unless there's a clear logical dependency
+   
+    For PARALLEL mode:
+    - Each indexed tool gets its own specific query based on its corresponding sub-task
+    - Example: `web_search_0`: "iPhone 16 price", `web_search_1`: "Samsung S24 price"
+    
+    For SEQUENTIAL mode:
+    - ONLY the first indexed tool (position 0) gets a real query
+    - ALL subsequent tools get "WAIT_FOR_PREVIOUS"
+    - Example: `rag_0`: "Mochan-D features", `web_search_0`: "WAIT_FOR_PREVIOUS"
+    
+    Query optimization rules:
+    - RAG: "Mochan-D" + [specific topic from sub-task]
+    - Calculator: Extract numbers from sub-task, create valid Python expression
+    - Web_search: Transform sub-task into focused search query, preserve qualifiers (when, how much, what type), add "2025" if time-sensitive
+    
+   Note: All web_search queries always run parallel among themselves.
+   This is only about cross-tool dependencies (rag ↔ web_search ↔ calculator)
+
+8. Is this a follow-up query?
    - Look at conversation history: Does current query build on previous topics?
    - Follow-up = asking for details, clarification, or diving deeper into what was discussed
    - New query = completely different topic or no conversation history
@@ -546,7 +671,6 @@ Return ONLY valid JSON:
   }},
   "key_points_to_address": ["point1", "point2"]
 }}"""
-
         try:
             logger.info(f"💨 SIMPLE ANALYSIS (Llama Fast Path)")
             
@@ -861,7 +985,7 @@ Think through each question naturally, then return ONLY the JSON. No other text.
                 # Merge queries with comma separator
                 merged_query = ", ".join(web_queries)
                 logger.info(f"🔀 LLMLayer enabled: Merging {len(web_queries)} web_search queries")
-                logger.info(f"   Combined query: {merged_query[:150]}...")
+                logger.info(f"   Combined query: {merged_query}")
                 
                 # Replace all web_search queries with single merged one
                 new_queries = {k: v for k, v in enhanced_queries.items() if not k.startswith("web_search")}
@@ -1144,6 +1268,7 @@ Think through each question naturally, then return ONLY the JSON. No other text.
         tool_data = self._format_tool_results(tool_results)
         logger.info(f" FORMATTED TOOL DATA: {len(tool_data)} chars")
         
+        context = chat_history[-5:] if chat_history else []
         # Build memory context to avoid repetition
         recent_phrases = self._extract_recent_phrases(chat_history)
         logger.info(f" RECENT PHRASES TO AVOID: {recent_phrases}")
@@ -1269,6 +1394,9 @@ Think through each question naturally, then return ONLY the JSON. No other text.
             
             AVAILABLE DATA TO USE NATURALLY:
             {tool_data}
+            
+            CONVERSATION HISTORY: {context}
+            LONG-TERM CONTEXT (Memories): {memories}
 
             RESPONSE REQUIREMENTS:
             - Personality: {strategy.get('personality', 'helpful_dost')}

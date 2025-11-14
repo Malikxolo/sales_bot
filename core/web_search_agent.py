@@ -112,7 +112,7 @@ async def search_llmlayer(query: str, api_key: str, api_url: str) -> str:
         Pre-formatted text response
     """
     try:
-        logger.info(f"🌐 LLMLayer search for query: {query[:100]}...")
+        logger.info(f"🌐 LLMLayer search for query: {query}")
         
         headers = {
             "Authorization": f"Bearer {api_key}",
