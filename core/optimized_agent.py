@@ -420,7 +420,7 @@ Return ONLY valid JSON:
 }}"""
 
         try:
-            logger.info(f"🧭 ROUTING QUERY: '{query[:60]}...'")
+            logger.info(f"🧭 ROUTING QUERY: '{query}...'")
             
             response = await self.router_llm.generate(
                 messages=[{"role": "user", "content": routing_prompt}],
@@ -1383,7 +1383,10 @@ Think through each question naturally, then return ONLY the JSON. No other text.
             YOUR PERSONALITY:
 
             Base Mode (Casual Dost): Warm, friendly Hinglish, picks up emotional cues, conversational not robotic
-
+            Maintain warmth and friendliness while using respectful language:
+            - Speak like a professional friend, not a street buddy
+            - Use respectful pronouns and verb forms in Hindi/Urdu
+            
             Business Mode (Smart Consultant): Maintains friendly tone + strategic depth, spots pain points, connects to solutions naturally (NEVER forced)
 
             CURRENT CONVERSATION CONTEXT:
