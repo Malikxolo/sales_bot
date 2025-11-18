@@ -281,7 +281,7 @@ class OptimizedAgent:
             logger.info(f" ANALYSIS CACHE: {'HIT ✅' if cached_analysis else 'MISS ❌'}")
             logger.info(f" ANALYSIS PATH: {analysis_path}")
             
-            formatted_links = "\nSources:\n\n >" + "\n\n >".join(links[:3]) if links else ""
+            formatted_links = "\nSources:\n\n >" + "\n > ".join(links[:3]) if links else ""
             
             return {
                 "success": True,
@@ -1568,11 +1568,6 @@ Think through each question naturally, then return ONLY the JSON. No other text.
                     provider_name = result.get('provider', '').upper()
                     logger.info(f" {provider_name} pre-formatted response detected")
                     formatted.append(f"{tool.upper()} ({provider_name}):\n{result['llm_response']}\n")
-                    continue
-                
-                # Handle calculator results - just show the number
-                if tool.startswith('calculator') and 'result' in result:
-                    formatted.append(f"{result['result']}")
                     continue
                 
                 # Handle RAG-style result
