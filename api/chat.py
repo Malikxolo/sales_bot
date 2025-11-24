@@ -46,10 +46,12 @@ router = APIRouter()
 import time
 import os
 from core import (
-    LLMClient, HeartAgent, 
-    ToolManager, Config, BrainAgent
+    LLMClient,
+    ToolManager, Config
 )
+from core.cs_tools import ToolManager as CSToolManager
 from core.optimized_agent import OptimizedAgent
+from core.customer_support_agent import CustomerSupportAgent
 from core.logging_security import (
     safe_log_response,
     safe_log_user_data,
@@ -103,9 +105,11 @@ async def lifespan(app: FastAPI):
     brain_llm = LLMClient(brain_model_config)
     heart_llm = LLMClient(heart_model_config)
     routing_llm = LLMClient(routing_config)
+    # tool_manager = CSToolManager({})
     tool_manager = ToolManager(config, brain_llm, web_model_config, settings.use_premium_search)
 
     optimizedAgent = OptimizedAgent(brain_llm, heart_llm, tool_manager, routing_llm)
+    # optimizedAgent = CustomerSupportAgent(brain_llm, heart_llm, tool_manager)
     
     # Initialize Organization Manager
     mongo_client = MongoClient(os.getenv('MONGODB_URI', 'mongodb://localhost:27017/'))
@@ -223,7 +227,8 @@ async def chat_brain_heart_system(request: ChatMessage = Body(...)):
         safe_log_user_data(user_id, 'brain_heart_chat', message_count=len(user_query))
         
         
-        result = await optimizedAgent.process_query(user_query, chat_history, user_id, mode, source)
+        # result = await optimizedAgent.process_query(user_query, chat_history, user_id, mode, source)
+        result = await optimizedAgent.process_query(user_query, chat_history, user_id)
         
         if result["success"]:
             safe_log_response(result, level='info')

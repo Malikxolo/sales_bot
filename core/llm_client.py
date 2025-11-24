@@ -96,6 +96,8 @@ class LLMClient:
                 response.raise_for_status()
                 result = await response.json()
                 return result["choices"][0]["message"]["content"]
+            
+        
         
     
     async def _anthropic_request(self, messages: List[Dict[str, str]], 
