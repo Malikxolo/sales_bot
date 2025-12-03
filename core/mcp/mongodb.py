@@ -127,8 +127,8 @@ class MongoDBMCPClient:
         self.startup_timeout = startup_timeout
         self.security_manager = security_manager
         
-        # Get connection string from param or environment
-        self._connection_string = connection_string or os.getenv("MONGODB_CONNECTION_STRING", "")
+        # Get connection string from param or environment (.env)
+        self._connection_string = connection_string or os.getenv("MONGODB_MCP_CONNECTION_STRING", "")
         
         self._transport: Optional[StdioTransport] = None
         self._connected = False

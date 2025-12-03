@@ -445,10 +445,10 @@ class TestStdioTransportIntegration:
         assert transport.is_connected is False
 
 
-# Integration test (requires MongoDB connection string)
+# Integration test (requires MongoDB connection string from .env)
 @pytest.mark.skipif(
-    not os.getenv("MONGODB_CONNECTION_STRING"),
-    reason="MONGODB_CONNECTION_STRING not set"
+    not os.getenv("MONGODB_MCP_CONNECTION_STRING"),
+    reason="MONGODB_MCP_CONNECTION_STRING not set in .env"
 )
 class TestMongoDBMCPIntegration:
     """Real integration tests - only run with valid MongoDB connection"""
