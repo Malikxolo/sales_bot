@@ -129,9 +129,7 @@ class OptimizedAgent:
                 source = "whatsapp"
             logger.info(f"Resolved source: {source}")
 
-            # If mode not explicitly provided, derive it from source
-            if not mode:
-                mode = "transformative" if source == "website" else "whatsapp"
+            # Mode is only set if explicitly provided in payload
             logger.info(f"Resolved mode: {mode}")
 
             # STEP 0: Language Detection Layer (if enabled)
@@ -927,7 +925,6 @@ Return ONLY valid JSON:
 USER QUERY: {query}
 
 LONG-TERM CONTEXT (Memories): {memories}
-CONVERSATION HISTORY: {context}
 
 CRITICAL INSTRUCTION - DATA FRESHNESS:
 - Any information that is liable to change, USE web-search to validate that. For standard definitions and facts, use your base data. Based on that, expand on the dimensionality aspect to retrieve all that information at once.
@@ -1261,9 +1258,8 @@ Think through each question naturally, then return ONLY the JSON. No other text.
         
         # Execute remaining tools with middleware
         for i in range(1, len(order)):
-            current_tool_key = order[i]  # e.g., 'web_search_1'
+            current_tool_key = order[i]
             current_tool_name = current_tool_key.rsplit('_', 1)[0] if '_' in current_tool_key and current_tool_key.split('_')[-1].isdigit() else current_tool_key
-            # ^ Strips index: 'web_search_1' -> 'web_search'
             
             # Check if this tool needs middleware
             if enhanced_queries.get(current_tool_key) == "WAIT_FOR_PREVIOUS":
@@ -1273,7 +1269,7 @@ Think through each question naturally, then return ONLY the JSON. No other text.
                 enhanced_query = await self._middleware_summarizer(
                     previous_results=results,
                     original_query=query,
-                    next_tool=current_tool_name  # Pass base name, not indexed name
+                    next_tool=current_tool_name
                 )
                 logger.info(f"   → Middleware output: '{enhanced_query}'")
             else:
@@ -1477,14 +1473,6 @@ Return ONLY the natural language instruction. Be specific about which resource t
         # Use original query if provided, otherwise use the query parameter
         if original_query is None:
             original_query = query
-        
-        # Defensive source normalization for response generation
-        source = (source or "").strip().lower()
-        if source not in ("whatsapp", "website"):
-            source = "whatsapp"
-        # If mode not provided, derive it from source
-        if not mode:
-            mode = "transformative" if source == "website" else "whatsapp"
 
         logger.info(f"📝 RESPONSE GENERATION:")
         logger.info(f"   Detected Language: {detected_language}")
@@ -1525,6 +1513,7 @@ Return ONLY the natural language instruction. Be specific about which resource t
         logger.info(f" RECENT PHRASES TO AVOID: {recent_phrases}")
         
         if mode == "transformative":
+            logger.info(f" USING TRANSFORMATIVE PROMPT (mode: {mode})")
             response_prompt = f"""You are a helpful AI assistant. Your purpose is to provide accurate, comprehensive, and useful responses.
 
             ORIGINAL USER QUERY: {query}
@@ -1608,7 +1597,7 @@ Return ONLY the natural language instruction. Be specific about which resource t
 
             Provide your comprehensive response now:"""
         else:
-        
+            logger.info(f" USING DEFAULT MOCHAN-D PROMPT (mode: {mode})")
             response_prompt = f"""You are Mochan-D (Mochand Dost) - an AI companion who's equal parts:
             - Helpful friend (dost) who genuinely cares
             - Smart business consultant who spots opportunities  
@@ -1617,7 +1606,6 @@ Return ONLY the natural language instruction. Be specific about which resource t
             - Analytical problem-solver who adds real value
             - Structure your responses such that they answer the user's query fully while keeping it short and concise.
             - For complex queries, break down your response into clear sections with headers and bullet points.
-            - Keep your response under 300 characters.
 
             YOUR PERSONALITY:
 
@@ -1734,10 +1722,10 @@ Return ONLY the natural language instruction. Be specific about which resource t
         try:
             
             max_tokens = {
-                "micro": 1500,
-                "short": 3000,
-                "medium": 5000,
-                "detailed": 7000
+                "micro": 150,
+                "short": 300,
+                "medium": 500,
+                "detailed": 700
             }.get(strategy.get('length', 'medium'), 500)
             
             language = detected_language.lower()

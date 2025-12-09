@@ -203,8 +203,8 @@ class CalculatorTool(BaseTool):
 class WebSearchTool(BaseTool):
     """
     Web search tool with multi-provider support and quota management
-    ✅ Integrated: Quota-aware provider selection with auto-fallback
-    ✅ Added: Google CSE, Brave, Serper support alongside existing providers
+      Integrated: Quota-aware provider selection with auto-fallback
+      Added: Google CSE, Brave, Serper support alongside existing providers
     """
     
     def __init__(
@@ -368,7 +368,7 @@ class WebSearchTool(BaseTool):
                     if self.quota_manager:
                         self.quota_manager.record_usage(provider, num_queries=1, success=True)
                     
-                    logger.info(f"   ✅ {provider.upper()}: {result.get('total_results', 0)} results, "
+                    logger.info(f"     {provider.upper()}: {result.get('total_results', 0)} results, "
                               f"{result.get('scraped_count', 0)} scraped")
                     return result
                 else:
@@ -773,10 +773,10 @@ class WebSearchTool(BaseTool):
                 results[idx]["scraped_content"] = scraped[:20000]  # Limit to 20000 chars
                 scraped_count += 1
                 self.stats["total_scraped"] += 1
-                logger.debug(f"      ✅ [{idx+1}] Scraped {len(scraped)} chars")
+                logger.debug(f"       [{idx+1}] Scraped {len(scraped)} chars")
         
         if scraped_count > 0:
-            logger.info(f"   ✅ Successfully scraped {scraped_count}/{scrape_top} pages")
+            logger.info(f"    Successfully scraped {scraped_count}/{scrape_top} pages")
         
         return scraped_count
     
@@ -872,7 +872,7 @@ class RAGTool(BaseTool):
                 distances = result.get("distances", [])
                 
                 # Log success with detailed metrics
-                logger.info(f"✅ RAG query SUCCESS for user {user_id}")
+                logger.info(f" RAG query SUCCESS for user {user_id}")
                 logger.info(f"   Collection: {collection_name}")
                 logger.info(f"   Retrieved chunks: {chunks_count}")
                 logger.info(f"   Query: '{query[:50]}...'")
@@ -951,8 +951,8 @@ class RAGTool(BaseTool):
 class ToolManager:
     """
     Manages all available tools with multi-provider support
-    ✅ Updated: Passes all SERP provider keys to WebSearchTool
-    ✅ NEW: Zapier MCP integration for 8000+ app actions
+      Updated: Passes all SERP provider keys to WebSearchTool
+      NEW: Zapier MCP integration for 8000+ app actions
     """
     
     def __init__(
@@ -993,14 +993,14 @@ class ToolManager:
         
         # Calculator (always available)
         self.tools["calculator"] = CalculatorTool()
-        logger.info("✅ Calculator tool initialized")
+        logger.info("  Calculator tool initialized")
         
         # Web Search (if configured)
         self._initialize_web_search(tool_configs)
         
         # RAG Tool (always available)
         self.tools["rag"] = RAGTool(self.llm_client)
-        logger.info("✅ RAG tool initialized")
+        logger.info("  RAG tool initialized")
         
         # Note: Zapier tools initialized separately via initialize_zapier_async()
     
@@ -1091,7 +1091,7 @@ class ToolManager:
                 jina_api_key=jina_api_key
             )
             
-            logger.info("✅ Web search tool initialized")
+            logger.info("  Web search tool initialized")
             logger.info(f"   🔍 Mode: {provider_mode}")
             logger.info(f"   📋 Available providers: {', '.join(available_providers)}")
             if jina_api_key:
@@ -1140,7 +1140,7 @@ class ToolManager:
             
             if initialized:
                 zapier_tools = self._zapier_manager.get_tool_names()
-                logger.info(f"✅ Zapier MCP integration initialized with {len(zapier_tools)} tools")
+                logger.info(f"  Zapier MCP integration initialized with {len(zapier_tools)} tools")
                 
                 # Log some example tools
                 if zapier_tools:
@@ -1208,7 +1208,7 @@ class ToolManager:
                             logger.error("❌ MongoDB database connection failed - server says 'need to connect'")
                             return False
                         else:
-                            logger.info("✅ MongoDB database connection verified!")
+                            logger.info("  MongoDB database connection verified!")
                     
                 except Exception as conn_err:
                     logger.warning(f"⚠️ Database connection step: {conn_err}")
@@ -1218,7 +1218,7 @@ class ToolManager:
                 self._query_agent = QueryAgent(llm_client=self.llm_client)
                 
                 tools = await self._mongodb_manager.list_tools()
-                logger.info(f"✅ MongoDB MCP integration initialized with {len(tools)} tools")
+                logger.info(f"  MongoDB MCP integration initialized with {len(tools)} tools")
                 
                 # Log some example tools
                 if tools:
@@ -1273,7 +1273,7 @@ class ToolManager:
                     self._query_agent = QueryAgent(llm_client=self.llm_client)
                 
                 tools = await self._redis_manager.list_tools()
-                logger.info(f"✅ Redis MCP integration initialized with {len(tools)} tools")
+                logger.info(f"  Redis MCP integration initialized with {len(tools)} tools")
                 
                 # Log some example tools
                 if tools:
@@ -1430,7 +1430,7 @@ class ToolManager:
                 )
                 
                 if result.get("success"):
-                    logger.info(f"✅ Zapier tool '{tool_name}' executed successfully")
+                    logger.info(f"  Zapier tool '{tool_name}' executed successfully")
                 else:
                     logger.warning(f"⚠️ Zapier tool '{tool_name}' failed: {result.get('error')}")
                 
@@ -1482,7 +1482,7 @@ class ToolManager:
                         "provider": "mongodb_mcp"
                     }
                 elif result.success:
-                    logger.info(f"✅ MongoDB tool executed successfully")
+                    logger.info(f"  MongoDB tool executed successfully")
                     return {
                         "success": True,
                         "result": result.result,
@@ -1546,7 +1546,7 @@ class ToolManager:
                         "provider": "redis_mcp"
                     }
                 elif result.success:
-                    logger.info(f"✅ Redis tool executed successfully")
+                    logger.info(f"  Redis tool executed successfully")
                     return {
                         "success": True,
                         "result": result.result,
@@ -1591,7 +1591,7 @@ class ToolManager:
             result["tool_name"] = tool_name
             
             if result.get("success"):
-                logger.info(f"✅ Tool '{tool_name}' executed successfully")
+                logger.info(f"  Tool '{tool_name}' executed successfully")
             else:
                 logger.warning(f"⚠️ Tool '{tool_name}' execution failed: {result.get('error')}")
             
@@ -1636,7 +1636,7 @@ class ToolManager:
             if hasattr(tool, 'close'):
                 try:
                     await tool.close()
-                    logger.debug(f"   ✅ Closed {name}")
+                    logger.debug(f"     Closed {name}")
                 except Exception as e:
                     logger.warning(f"   ⚠️ Error closing {name}: {str(e)}")
         
@@ -1644,7 +1644,7 @@ class ToolManager:
         if self._zapier_manager:
             try:
                 await self._zapier_manager.close()
-                logger.debug("   ✅ Closed Zapier MCP")
+                logger.debug("     Closed Zapier MCP")
             except Exception as e:
                 logger.warning(f"   ⚠️ Error closing Zapier MCP: {str(e)}")
         
@@ -1652,7 +1652,7 @@ class ToolManager:
         if self._mongodb_manager:
             try:
                 await self._mongodb_manager.disconnect()
-                logger.debug("   ✅ Closed MongoDB MCP")
+                logger.debug("     Closed MongoDB MCP")
             except Exception as e:
                 logger.warning(f"   ⚠️ Error closing MongoDB MCP: {str(e)}")
         
@@ -1660,8 +1660,8 @@ class ToolManager:
         if self._query_agent:
             try:
                 await self._query_agent.close()
-                logger.debug("   ✅ Closed QueryAgent")
+                logger.debug("     Closed QueryAgent")
             except Exception as e:
                 logger.warning(f"   ⚠️ Error closing QueryAgent: {str(e)}")
         
-        logger.info("✅ Tool cleanup complete")
+        logger.info("  Tool cleanup complete")
