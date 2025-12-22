@@ -215,8 +215,10 @@ class Config:
         print(f"🌐 DEBUG: LLMLAYER_API_KEY: {llmlayer_key[:20] if llmlayer_key else '❌ NOT FOUND!'}")
 
         
-        # Web search is enabled if we have OpenRouter (for Perplexity) or search API keys
-        web_search_enabled = bool(openrouter_key or scrapingdog_key or valueserp_key or llmlayer_key)
+        # Web search is enabled ONLY if explicitly enabled AND we have API keys
+        web_search_env_enabled = os.getenv('WEB_SEARCH_ENABLED', 'true').lower() == 'true'
+        web_search_has_keys = bool(openrouter_key or scrapingdog_key or valueserp_key or llmlayer_key)
+        web_search_enabled = web_search_env_enabled and web_search_has_keys
         
         tools = {
             'calculator': {

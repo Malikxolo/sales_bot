@@ -54,6 +54,7 @@ from core import (
 )
 from core.cs_tools import ToolManager as CSToolManager
 from core.optimized_agent import OptimizedAgent
+from core.grievance_agent import GrievanceAgent as DMGrievanceAgent
 from core.customer_support_agent import CustomerSupportAgent
 from core.logging_security import (
     safe_log_response,
@@ -111,7 +112,7 @@ async def lifespan(app: FastAPI):
     
     logging.info("⚡ Starting app lifespan...")
     
-    global optimizedAgent, org_manager, kb_manager
+    global agent, org_manager, kb_manager
     config = Config()
 
     redis_client = Redis(
@@ -204,6 +205,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logging.error(f"❌ Failed to initialize Redis MCP: {e}")
 
+    # Initialize Grievance tool
+    try:
+        grievance_initialized = await tool_manager.initialize_grievance_async()
+        if grievance_initialized:
+            logging.info("✅ Grievance tool initialized successfully")
+        else:
+            logging.warning("⚠️ Grievance tool not enabled (GRIEVANCE_ENABLED=false)")
+    except Exception as e:
+        logging.error(f"❌ Failed to initialize Grievance tool: {e}")
+
     # Initialize language detector if enabled
     language_detector_llm = None
     if config.language_detection_enabled:
@@ -215,17 +226,40 @@ async def lifespan(app: FastAPI):
             logging.warning(f"⚠️ Language detection initialization failed: {e}. Continuing without language detection.")
             language_detector_llm = None
 
-    optimizedAgent = OptimizedAgent(
-        brain_llm=brain_llm,
-        heart_llm=heart_llm,
-        tool_manager=tool_manager,
-        routing_llm=routing_llm,
-        simple_whatsapp_llm=simple_whatsapp_llm,
-        cot_whatsapp_llm=cot_whatsapp_llm,
-        indic_llm=indic_llm,
-        language_detector_llm=language_detector_llm
-    )
-    # optimizedAgent = CustomerSupportAgent(brain_llm, heart_llm, tool_manager)
+    # Conditionally create agent based on GRIEVANCE_AGENT_ENABLED
+    global agent
+    if settings.grievance_agent_enabled:
+        # Create GrievanceAgent for DM Office
+        logging.info("🏛️ GRIEVANCE_AGENT_ENABLED=true → Creating GrievanceAgent (DM Office mode)")
+        
+        grievance_agent_config = config.create_llm_config(
+            provider=settings.grievance_agent_provider,
+            model=settings.grievance_agent_model,
+            max_tokens=4000
+        )
+        grievance_agent_llm = LLMClient(grievance_agent_config)
+        
+        agent = DMGrievanceAgent(
+            llm=grievance_agent_llm,
+            tool_manager=tool_manager,
+            language_detector_llm=language_detector_llm,
+            indic_llm=indic_llm
+        )
+        logging.info(f"✅ GrievanceAgent initialized with model: {settings.grievance_agent_model}")
+    else:
+        # Create OptimizedAgent (default)
+        logging.info("🧠 GRIEVANCE_AGENT_ENABLED=false → Creating OptimizedAgent (default mode)")
+        agent = OptimizedAgent(
+            brain_llm=brain_llm,
+            heart_llm=heart_llm,
+            tool_manager=tool_manager,
+            routing_llm=routing_llm,
+            simple_whatsapp_llm=simple_whatsapp_llm,
+            cot_whatsapp_llm=cot_whatsapp_llm,
+            indic_llm=indic_llm,
+            language_detector_llm=language_detector_llm
+        )
+        logging.info("✅ OptimizedAgent initialized")
     
     # Initialize Organization Manager
     mongo_client = MongoClient(os.getenv('MONGODB_URI', 'mongodb://localhost:27017/'))
@@ -255,10 +289,10 @@ async def lifespan(app: FastAPI):
     
     logging.info("✅ Organization Manager and Knowledge Base Manager initialized")
 
-    optimizedAgent.worker_task = asyncio.create_task(
-        optimizedAgent.background_task_worker()
+    agent.worker_task = asyncio.create_task(
+        agent.background_task_worker()
     )
-    logging.info("OptimizedAgent background worker started")
+    logging.info(f"{'GrievanceAgent' if settings.grievance_agent_enabled else 'OptimizedAgent'} background worker started")
 
     try:
         yield
@@ -272,11 +306,11 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logging.warning(f"⚠️ Error during tool cleanup: {e}")
         
-        optimizedAgent.worker_task.cancel()
+        agent.worker_task.cancel()
         try:
-            await optimizedAgent.worker_task
+            await agent.worker_task
         except asyncio.CancelledError:
-            logging.info("OptimizedAgent worker cancelled cleanly")
+            logging.info("Agent worker cancelled cleanly")
 
 
 from pydantic import BaseModel
@@ -344,7 +378,7 @@ async def set_brain_heart_agents(request: UpdateAgentsRequest):
 
 @router.post("/chat", dependencies=[Depends(RateLimiter(times=6, seconds=60))])
 async def chat_brain_heart_system(request: ChatMessage = Body(...)):
-    """New endpoint specifically for Brain-Heart system with messages support"""
+    """Chat endpoint - uses GrievanceAgent or OptimizedAgent based on config"""
     
     try:
         user_id = request.userid
@@ -356,8 +390,8 @@ async def chat_brain_heart_system(request: ChatMessage = Body(...)):
         safe_log_user_data(user_id, 'brain_heart_chat', message_count=len(user_query))
         
         
-        # Pass mode and source so OptimizedAgent can map to appropriate prompt/model behavior
-        result = await optimizedAgent.process_query(user_query, chat_history, user_id, mode=mode, source=source)
+        # Pass mode and source to agent
+        result = await agent.process_query(user_query, chat_history, user_id, mode=mode, source=source)
         
         if result["success"]:
             safe_log_response(result, level='info')

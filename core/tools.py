@@ -953,6 +953,7 @@ class ToolManager:
     Manages all available tools with multi-provider support
       Updated: Passes all SERP provider keys to WebSearchTool
       NEW: Zapier MCP integration for 8000+ app actions
+      NEW: Grievance tool for DM grievance tracking
     """
     
     def __init__(
@@ -980,6 +981,10 @@ class ToolManager:
         # Redis integration
         self._redis_manager = None
         
+        # Grievance integration
+        self._grievance_agent = None
+        self._grievance_enabled = None  # Auto-detect from env
+        
         self._initialize_tools()
         
         logger.info(f"ToolManager initialized with web model: {web_model}")
@@ -1006,6 +1011,13 @@ class ToolManager:
     
     def _initialize_web_search(self, tool_configs: Dict[str, Any]):
         """Initialize web search with multi-provider support"""
+        
+        # Check explicit WEB_SEARCH_ENABLED toggle first
+        web_search_enabled = os.getenv("WEB_SEARCH_ENABLED", "true").lower() == "true"
+        
+        if not web_search_enabled:
+            logger.info("⚠️ Web search DISABLED via WEB_SEARCH_ENABLED=false")
+            return
         
         web_config = tool_configs.get("web_search", {})
         
@@ -1112,6 +1124,13 @@ class ToolManager:
         """
         # Check if Zapier should be enabled
         if self._zapier_enabled is None:
+            # Check explicit ZAPIER_ENABLED toggle first
+            zapier_explicit = os.getenv("ZAPIER_ENABLED", "true").lower() == "true"
+            if not zapier_explicit:
+                logger.info("ℹ️ Zapier MCP integration disabled (ZAPIER_ENABLED=false)")
+                self._zapier_enabled = False
+                return False
+            
             # Auto-detect from environment
             mcp_enabled = os.getenv("MCP_ENABLED", "false").lower() == "true"
             zapier_url = os.getenv("ZAPIER_MCP_SERVER_URL")
@@ -1169,6 +1188,12 @@ class ToolManager:
         Returns:
             True if MongoDB initialized successfully
         """
+        # Check if MongoDB is explicitly disabled via .env
+        mongodb_enabled = os.getenv("MONGODB_ENABLED", "true").lower() == "true"
+        if not mongodb_enabled:
+            logger.info("ℹ️ MongoDB MCP integration disabled (MONGODB_ENABLED=false)")
+            return False
+        
         # Check if MongoDB connection string is configured
         connection_string = os.getenv("MONGODB_MCP_CONNECTION_STRING")
         
@@ -1247,6 +1272,12 @@ class ToolManager:
         Returns:
             True if Redis initialized successfully
         """
+        # Check if Redis is explicitly disabled via .env
+        redis_enabled = os.getenv("REDIS_ENABLED", "true").lower() == "true"
+        if not redis_enabled:
+            logger.info("ℹ️ Redis MCP integration disabled (REDIS_ENABLED=false)")
+            return False
+        
         # Check if Redis URL is configured
         redis_url = os.getenv("REDIS_MCP_URL")
         
@@ -1292,6 +1323,58 @@ class ToolManager:
             logger.error(f"❌ Redis MCP initialization error: {e}")
             return False
     
+    async def initialize_grievance_async(self) -> bool:
+        """
+        Initialize Grievance tool (async).
+        
+        Call this after ToolManager creation to enable grievance parameter extraction.
+        
+        Returns:
+            True if Grievance initialized successfully
+        """
+        # Check if Grievance is explicitly disabled via .env
+        grievance_enabled = os.getenv("GRIEVANCE_ENABLED", "true").lower() == "true"
+        if not grievance_enabled:
+            logger.info("ℹ️ Grievance tool disabled (GRIEVANCE_ENABLED=false)")
+            self._grievance_enabled = False
+            return False
+        
+        try:
+            # Import here to avoid circular imports
+            from .grievance_query_agent import GrievanceAgent
+            
+            logger.info("🔄 Initializing Grievance tool...")
+            
+            # Get grievance LLM config from .env
+            grievance_provider = os.getenv("GRIEVANCE_LLM_PROVIDER", "openrouter")
+            grievance_model = os.getenv("GRIEVANCE_LLM_MODEL", "meta-llama/llama-4-maverick")
+            
+            # Create custom LLM config for grievance
+            from core.config import Config
+            config = Config()
+            grievance_llm_config = config.create_llm_config(
+                provider=grievance_provider,
+                model=grievance_model,
+                max_tokens=2048
+            )
+            grievance_llm = LLMClient(grievance_llm_config)
+            
+            # Create GrievanceAgent with dedicated LLM client
+            self._grievance_agent = GrievanceAgent(llm_client=grievance_llm)
+            self._grievance_enabled = True
+            
+            logger.info("✅ Grievance tool initialized")
+            return True
+                
+        except ImportError as e:
+            logger.warning(f"⚠️ Grievance module not available: {e}")
+            self._grievance_enabled = False
+            return False
+        except Exception as e:
+            logger.error(f"❌ Grievance initialization error: {e}")
+            self._grievance_enabled = False
+            return False
+    
     @property
     def mongodb_available(self) -> bool:
         """Check if MongoDB tools are available"""
@@ -1306,6 +1389,11 @@ class ToolManager:
     def zapier_available(self) -> bool:
         """Check if Zapier tools are available"""
         return self._zapier_manager is not None and self._zapier_manager.is_available
+    
+    @property
+    def grievance_available(self) -> bool:
+        """Check if Grievance tool is available"""
+        return self._grievance_agent is not None and self._grievance_enabled
     
     def get_zapier_tools(self) -> List[str]:
         """Get list of available Zapier tool names"""
@@ -1364,14 +1452,23 @@ class ToolManager:
         if include_redis and self._redis_manager and self._redis_manager.is_connected:
             tools.append("redis")
         
+        if self._grievance_agent and self._grievance_enabled:
+            tools.append("grievance")
+        
         return tools
     
     def get_tool_descriptions(self) -> Dict[str, str]:
         """Get descriptions of all available tools"""
-        return {
+        descriptions = {
             name: tool.description 
             for name, tool in self.tools.items()
         }
+        
+        # Add grievance description if available
+        if self._grievance_agent and self._grievance_enabled:
+            descriptions["grievance"] = "Extract structured grievance parameters from natural language complaints (for DM grievance tracking)"
+        
+        return descriptions
     
     async def execute_tool(
         self, 
@@ -1573,6 +1670,62 @@ class ToolManager:
                     "provider": "redis_mcp"
                 }
         
+        # Check if it's a Grievance tool
+        if tool_name == "grievance" and self._grievance_agent:
+            logger.info(f"🔧 Executing Grievance tool via GrievanceAgent")
+            
+            try:
+                query = kwargs.get("query", "")
+                
+                if not query:
+                    return {
+                        "success": False,
+                        "error": "No query provided for grievance extraction",
+                        "tool_name": tool_name,
+                        "provider": "grievance_agent"
+                    }
+                
+                # Execute via GrievanceAgent (NL → structured params)
+                result = await self._grievance_agent.execute(instruction=query)
+                
+                # Convert GrievanceResult to dict format
+                if result.needs_clarification:
+                    logger.info(f"❓ Grievance needs clarification: {result.clarification_message}")
+                    return {
+                        "success": False,
+                        "needs_clarification": True,
+                        "clarification_message": result.clarification_message,
+                        "missing_fields": result.missing_fields or [],
+                        "tool_name": tool_name,
+                        "provider": "grievance_agent"
+                    }
+                elif result.success:
+                    logger.info(f"✅ Grievance extracted successfully")
+                    return {
+                        "success": True,
+                        "result": result.params.to_dict() if result.params else {},
+                        "params": result.params.to_dict() if result.params else {},
+                        "tool_name": tool_name,
+                        "provider": "grievance_agent"
+                    }
+                else:
+                    logger.warning(f"⚠️ Grievance extraction failed: {result.error}")
+                    return {
+                        "success": False,
+                        "error": result.error,
+                        "tool_name": tool_name,
+                        "provider": "grievance_agent"
+                    }
+                
+            except Exception as e:
+                logger.error(f"❌ Grievance tool error: {str(e)}")
+                return {
+                    "success": False,
+                    "error": f"Grievance tool execution failed: {str(e)}",
+                    "tool_name": tool_name,
+                    "provider": "grievance_agent"
+                }
+        
         # Standard tool execution
         tool = self.get_tool(tool_name)
         if not tool:
@@ -1663,5 +1816,13 @@ class ToolManager:
                 logger.debug("     Closed QueryAgent")
             except Exception as e:
                 logger.warning(f"   ⚠️ Error closing QueryAgent: {str(e)}")
+        
+        # Cleanup GrievanceAgent
+        if self._grievance_agent:
+            try:
+                await self._grievance_agent.close()
+                logger.debug("     Closed GrievanceAgent")
+            except Exception as e:
+                logger.warning(f"   ⚠️ Error closing GrievanceAgent: {str(e)}")
         
         logger.info("  Tool cleanup complete")

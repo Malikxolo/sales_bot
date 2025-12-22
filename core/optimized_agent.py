@@ -39,7 +39,7 @@ class OptimizedAgent:
         self.language_detector_llm = language_detector_llm
         self.language_detection_enabled = language_detector_llm is not None
         self.tool_manager = tool_manager
-        # Include Zapier, MongoDB, and Redis tools if available
+        # Include Zapier, MongoDB, Redis and Grievance tools if available
         self.available_tools = tool_manager.get_available_tools(include_zapier=True, include_mongodb=True, include_redis=True)
         self.memory = AsyncMemory(memory_config)
         self.task_queue: asyncio.Queue["AddBackgroundTask"] = asyncio.Queue()
@@ -48,10 +48,12 @@ class OptimizedAgent:
         # Initialize Redis cache manager
         self.cache_manager = RedisCacheManager()
         
-        # Track Zapier, MongoDB, and Redis availability for prompts
+        # Track tool availability for conditional prompts
+        self._web_search_available = "web_search" in self.available_tools
         self._zapier_available = tool_manager.zapier_available
         self._mongodb_available = tool_manager.mongodb_available
         self._redis_available = tool_manager.redis_available
+        self._grievance_available = tool_manager.grievance_available
         
         logger.info(f"OptimizedAgent initialized with tools: {self.available_tools}")
         logger.info(f"WhatsApp Routing LLM: {'DEDICATED ✅' if routing_llm else 'SHARED (heart_llm) ⚠️'}")
@@ -60,6 +62,8 @@ class OptimizedAgent:
         logger.info(f"Comprehensive Analysis LLM (Website): brain_llm ✅")
         logger.info(f"Language Detection: {'ENABLED ✅' if self.language_detection_enabled else 'DISABLED ⚠️'}")
         logger.info(f"Redis caching: {'ENABLED ✅' if self.cache_manager.enabled else 'DISABLED ⚠️'}")
+        if self._web_search_available:
+            logger.info(f"Web Search: ENABLED ✅")
         if self._zapier_available:
             zapier_count = len(tool_manager.get_zapier_tools())
             logger.info(f"Zapier MCP: ENABLED ✅ ({zapier_count} tools available)")
@@ -67,6 +71,8 @@ class OptimizedAgent:
             logger.info(f"MongoDB MCP: ENABLED ✅")
         if self._redis_available:
             logger.info(f"Redis MCP: ENABLED ✅")
+        if self._grievance_available:
+            logger.info(f"Grievance Tool: ENABLED ✅")
     
     def _get_tools_prompt_section(self) -> str:
         """
@@ -75,31 +81,65 @@ class OptimizedAgent:
         This method dynamically generates the tools prompt by:
         1. Including base tools (web_search, rag, calculator)
         2. If Zapier is available, dynamically loading ALL Zapier tools
-        3. If MongoDB is available, adding database operations
-        4. If Redis is available, adding cache/key-value operations
+        3. If MongoDB is available, adding database operations WITH REQUIRED PARAMS
+        4. If Redis is available, adding cache/key-value operations WITH REQUIRED PARAMS
         
         UNIVERSAL DESIGN: When tools are added/removed,
         the prompt automatically updates - NO code changes required.
         """
+        logger.info(f"TOOLS PROMPT SECTION: Building tools prompt...")
+        logger.info(f"  Web search available: {self._web_search_available}")
+        logger.info(f"  MongoDB available: {self._mongodb_available}")
+        logger.info(f"  Redis available: {self._redis_available}")
+        logger.info(f"  Grievance available: {self._grievance_available}")
+        logger.info(f"  Zapier available: {self._zapier_available}")
+        
         base_tools = """Available tools:
-- web_search: Current internet information
-- rag: Knowledge base retrieval  
-- calculator: Math operations"""
+    - rag: Knowledge base retrieval  
+    - calculator: Math operations"""
+        
+        if self._web_search_available:
+            logger.info("  Adding web_search to prompt")
+            base_tools += """
+    - web_search: Current internet information"""
         
         if self._mongodb_available:
+            logger.info("  Adding MongoDB to prompt")
             base_tools += """
-- mongodb: MongoDB database operations"""
+    - mongodb: MongoDB database operations
+    CRITICAL: MongoDB queries MUST ALWAYS include:
+    * database name (e.g., "testing_mongodb")
+    * collection name (e.g., "fruit")
+    * operation details (insert/find/update/delete)
+    Example: "Insert {name: 'orange', color: 'orange', price: 70} into testing_mongodb.fruit collection"
+    NEVER assume database/collection from context - ALWAYS specify explicitly in each query."""
         
         if self._redis_available:
+            logger.info("  Adding Redis to prompt")
             base_tools += """
-- redis: Redis database operations"""
+    - redis: Redis database operations
+    CRITICAL: Redis queries MUST ALWAYS include:
+    * operation type (get/set/delete/exists)
+    * key name
+    * value (for set operations)
+    Example: "Set key 'user:123' to value 'John Doe' in Redis"
+    NEVER assume keys from context - ALWAYS specify explicitly in each query."""
+        
+        if self._grievance_available:
+            logger.info("  Adding grievance to prompt")
+            base_tools += """
+    - grievance: Citizen complaints to government (DM office)
+    Use for: complaint registration, shikayat, grievance reporting
+    The tool extracts category, location, description automatically and asks for clarification if needed"""
         
         if self._zapier_available:
+            logger.info("  Adding Zapier tools to prompt")
             # Get dynamic prompt with ALL Zapier tools (universal - auto-updates)
             zapier_prompt = self.tool_manager.get_zapier_tools_prompt()
             if zapier_prompt:
                 base_tools += f"\n{zapier_prompt}"
         
+        logger.info(f"TOOLS PROMPT SECTION: Final prompt built - length: {len(base_tools)} chars")
         return base_tools
     
     async def process_query(self, query: str, chat_history: List[Dict] = None, user_id: str = None, mode: str = None, source: Optional[str] = None) -> Dict[str, Any]:
@@ -729,12 +769,10 @@ Does the user's query relate to problems that Mochan-D's AI chatbot solution can
    GENERAL TOOL SELECTION:
    - `web_search`: For current information, prices, comparisons, weather, news, etc.
    - `calculator`: For mathematical calculations, statistical operations
+   - `grievance`: For citizen complaints/grievances to government (DM office). Select when user mentions: complaint, shikayat, problem report to government, grievance, or wants to register issue with authorities
    - `mongodb`: ONLY when user EXPLICITLY mentions MongoDB,mongodb.
    - `redis`: ONLY when user EXPLICITLY mentions Redis, redisdb.
    - `zapier_*`: For external app actions (email, Slack, calendar, CRM, etc.) - only if Zapier tools available
-   
-   IMPORTANT: All MCP tools (zapier_*, mongodb, redis) work with NATURAL LANGUAGE instructions, NOT structured params!
-   Example: "Send email to john@example.com about meeting tomorrow" (natural language, NOT JSON)
      
     AFTER SELECTING ALL GENERAL TOOLS - APPLY RAG SELECTION (GLOBAL CHECK):
     Select `rag` if ANY of:
@@ -774,21 +812,23 @@ Does the user's query relate to problems that Mochan-D's AI chatbot solution can
     - Example: `web_search_0`: "iPhone 16 price", `web_search_1`: "Samsung S24 price"
     
     For SEQUENTIAL mode:
-    - ONLY the first indexed tool (position 0) gets a real query
-    - ALL other tools: MUST use exactly "WAIT_FOR_PREVIOUS" as their query string
-    - Example: `rag_0`: "Mochan-D features", `web_search_0`: "WAIT_FOR_PREVIOUS"
+    - Set the correct execution order in tool_execution.order array
+    - Write focused queries for each tool
+    - Example:
+    order: ["rag_0", "web_search_0", "calculator_0"]
+    queries: {{
+        "rag_0": "Mochan-D pricing plans features",
+        "web_search_0": "AI chatbot market rates 2025",
+        "calculator_0": "1500 * 12"
+    }}
     
     Query optimization rules:
     - RAG: "Mochan-D" + [specific topic from sub-task]
     - Calculator: Extract numbers from sub-task, create valid Python expression
     - Web_search: Transform sub-task into focused search query, preserve qualifiers (when, how much, what type), add "2025" if time-sensitive
-    - `zapier_*`, `mongodb`, `redis`: External actions - Use NATURAL LANGUAGE instructions
-        Example: "Send email to john@example.com with subject 'Meeting'"
-        Example: "Insert user John Doe with email john@example.com into users collection"
-        Example: "Set cache key user:123 to value 'active' with 1 hour expiration"
+    - zapier_*, mongodb, redis, grievance: Use natural language with context from conversation history
     
     Note: All web_search queries always run parallel among themselves.
-    MCP tools (zapier_*, mongodb, redis) use natural language instructions.
    This is only about cross-tool dependencies (rag ↔ web_search ↔ calculator)
 
 7. Is this a follow-up query?
@@ -829,6 +869,7 @@ Return ONLY valid JSON:
     "rag_0": "query for rag",
     "web_search_0": "focused search query",
     "calculator_0": "math expression",
+    "grievance_0": "Complaint: [specific issue] in [location]. Wants: [resolution]",
     "zapier_gmail_send_email_0": "Send email to recipient@example.com with subject 'Your Subject' and body 'Your message here'"
   }},
   "tool_reasoning": "why these tools selected",
@@ -920,12 +961,15 @@ Return ONLY valid JSON:
 
 {self._get_tools_prompt_section()}
 
+CRITICAL: ONLY USE TOOLS FROM THE "AVAILABLE TOOLS" LIST ABOVE. Do NOT use any tools that are not explicitly listed. If a tool you want to use is not in the list, do not select it.
+
 USER QUERY: {query}
 
 LONG-TERM CONTEXT (Memories): {memories}
 
 CRITICAL INSTRUCTION - DATA FRESHNESS:
-- Any information that is liable to change, USE web-search to validate that. For standard definitions and facts, use your base data. Based on that, expand on the dimensionality aspect to retrieve all that information at once.
+- Any information that is liable to change, USE web-search to validate that (BUT ONLY IF web_search is listed in Available Tools above).
+- For standard definitions and facts, use your base data. Based on that, expand on the dimensionality aspect to retrieve all that information at once.
 - Think deeply for every possibilities do not leave things by assuming anything
 CORE PRINCIPLE: Think like a world-class consultant.
 When someone asks for X, you don't just give X. You think: "What else do they need to make X truly successful?"
@@ -971,7 +1015,7 @@ THINK THROUGH THESE QUESTIONS (use your intelligence, not rules):
    - Need for automation or always-available support?
    - Managing multiple platforms or scaling interactions?
    
-   If yes → this is a business context
+   If yes → this is a business context 
    If no → just answer the query directly
 
 4. MULTI-DIMENSIONAL TASK BREAKDOWN - FIND ALL THE HIDDEN ANGLES
@@ -1012,11 +1056,10 @@ THINK THROUGH THESE QUESTIONS (use your intelligence, not rules):
    - Natural language is OK: "product features value proposition"
    - You're searching internal documents
    
-   For zapier_* queries (email, Slack, calendar, etc.):
-   - Write NATURAL LANGUAGE instructions, NOT structured JSON!
-   - Example: "Send email to john@example.com with subject 'Meeting Tomorrow' and body 'Let's discuss the project'"
-   - Zapier AI extracts the params from your instructions automatically
-   
+   For zapier_*, mongodb, redis, grievance queries:
+   - Write NATURAL LANGUAGE instructions
+   - Use conversation history to create complete context
+
    AFTER SELECTING ALL TOOLS - APPLY RAG CHECK:
    Add `rag` to tools_to_use if ANY of:
    1. Any dimension is directly ABOUT Mochan-D
@@ -1024,7 +1067,6 @@ THINK THROUGH THESE QUESTIONS (use your intelligence, not rules):
    3. OR web_search is selected for ANY dimension
    
    If triggered, add ONE `rag` to your tools_to_use list.
-
 
 6. TOOL ORCHESTRATION - CAN DIFFERENT TOOLS RUN TOGETHER?
    
@@ -1057,7 +1099,7 @@ THINK THROUGH THESE QUESTIONS (use your intelligence, not rules):
 FINAL CHECK BEFORE YOU OUTPUT:
 - Did I find ALL dimensions of this query?
 - Am I being generous with search count or conservative? (Be generous!)
-- Did I use proper key names? (rag_0, web_search_0, web_search_1, etc.)
+- Did I use proper key names? (rag_0, web_search_0, web_search_1, grievance_0, mongodb_0, redis_0, etc.)
 - For complex queries: Did I generate at least 5-7 searches?
 - Did I keep the EXACT JSON structure below?
 - Did I add "rag" to tools_to_use if ANY web_search selected?
@@ -1096,6 +1138,7 @@ OUTPUT THIS EXACT JSON STRUCTURE:
     "rag_0": "query for rag",
     "web_search_0": "first focused search",
     "web_search_1": "second focused search",
+    "grievance_0": "[Specific issue] in [location]. Wants: [resolution]",
     "zapier_gmail_send_email_0": "Send email to user@example.com with subject 'Subject Here' and body 'Message content here'"
   }},
   "tool_reasoning": "why these tools",
@@ -1263,24 +1306,20 @@ Think through each question naturally, then return ONLY the JSON. No other text.
             results[first_tool_key] = {"error": str(e)}
             return results
         
-        # Execute remaining tools with middleware
+        # Execute remaining tools - ALL go through middleware (ignore LLM-generated queries)
         for i in range(1, len(order)):
             current_tool_key = order[i]
             current_tool_name = current_tool_key.rsplit('_', 1)[0] if '_' in current_tool_key and current_tool_key.split('_')[-1].isdigit() else current_tool_key
             
-            # Check if this tool needs middleware
-            if enhanced_queries.get(current_tool_key) == "WAIT_FOR_PREVIOUS":
-                logger.info(f"   → Step 2: Middleware generating enhanced query for {current_tool_key}...")
-                
-                # Use middleware to generate enhanced query from previous results
-                enhanced_query = await self._middleware_summarizer(
-                    previous_results=results,
-                    original_query=query,
-                    next_tool=current_tool_name
-                )
-                logger.info(f"   → Middleware output: '{enhanced_query}'")
-            else:
-                enhanced_query = enhanced_queries.get(current_tool_key, query)
+            # Always use middleware for non-first tools (universal approach)
+            logger.info(f"   → Step {i+1}: Middleware generating query for {current_tool_key}...")
+            
+            enhanced_query = await self._middleware_summarizer(
+                previous_results=results,
+                original_query=query,
+                next_tool=current_tool_name
+            )
+            logger.info(f"   → Middleware output: '{enhanced_query}'")
             
             # Execute current tool
             logger.info(f"   → Step {i+2}: Executing {current_tool_key.upper()} with query: '{enhanced_query}'")
@@ -1481,7 +1520,7 @@ Return ONLY the natural language instruction. Be specific about which resource t
         if original_query is None:
             original_query = query
 
-        logger.info(f"📝 RESPONSE GENERATION:")
+        logger.info(f"📝 RESPONSE GENERATION: mode='{mode}', source='{source}'")
         logger.info(f"   Detected Language: {detected_language}")
         logger.info(f"   Original Query: {original_query}")
         logger.info(f"   English Query (for context): {query}")
@@ -1519,6 +1558,7 @@ Return ONLY the natural language instruction. Be specific about which resource t
         recent_phrases = self._extract_recent_phrases(chat_history)
         logger.info(f" RECENT PHRASES TO AVOID: {recent_phrases}")
         
+        logger.info(f" PROMPT SELECTION DEBUG: mode='{mode}' (type: {type(mode)}), checking if mode == 'transformative'")
         if mode == "transformative":
             logger.info(f" USING TRANSFORMATIVE PROMPT (mode: {mode})")
             response_prompt = f"""You are a helpful AI assistant. Your purpose is to provide accurate, comprehensive, and useful responses.
@@ -1613,7 +1653,7 @@ Return ONLY the natural language instruction. Be specific about which resource t
             - Analytical problem-solver who adds real value
             - Structure your responses such that they answer the user's query fully while keeping it short and concise.
             - For complex queries, break down your response into clear sections with headers and bullet points.
-
+            - Keep your response under 350 characters.
             YOUR PERSONALITY:
 
             Base Mode (Casual Dost): Warm, friendly, picks up emotional cues, conversational not robotic
@@ -1704,10 +1744,11 @@ Return ONLY the natural language instruction. Be specific about which resource t
             - Assumptive Consultant: "How many touchpoints juggling?"
 
             CLOSING:
+            - Grievance tool used → Confirm registration, provide grievance ID, NO follow-up questions
             - Casual query → End naturally, no pitch
             - Warm lead → Ask ONE question, plant seed
             - Hot lead → Clear CTA but conversational
-            - MIX IT UP: Don't always ask questions
+            - MIX IT UP: Don't always ask questions (except grievance - never ask after grievance)
 
             CRITICAL DON'TS:
             ❌ Repeat user's words
@@ -1924,6 +1965,45 @@ Return ONLY the natural language instruction. Be specific about which resource t
                         error_msg = result.get('error', 'Unknown error')
                         formatted.append(f"{tool.upper()} ERROR:\n{error_msg}\n")
                         logger.warning(f"Redis tool error: {error_msg}")
+                    continue
+                
+                # Handle Grievance Agent tool results
+                if result.get('provider') == 'grievance_agent':
+                    if result.get('needs_clarification'):
+                        # Grievance needs more info from user
+                        clarification_msg = result.get('clarification_message', 'Please provide more details about the grievance.')
+                        missing = result.get('missing_fields', [])
+                        if missing:
+                            formatted.append(f"{tool.upper()} NEEDS CLARIFICATION:\n{clarification_msg}\nMissing fields: {', '.join(missing)}\n")
+                        else:
+                            formatted.append(f"{tool.upper()} NEEDS CLARIFICATION:\n{clarification_msg}\n")
+                        logger.info(f"Grievance tool needs clarification: {clarification_msg} | Missing: {missing}")
+                    elif result.get('success'):
+                        # Successful grievance extraction
+                        params = result.get('params', {})
+                        if params:
+                            # Format extracted parameters in readable way
+                            param_lines = []
+                            # Required fields first
+                            for field in ['category', 'location', 'description']:
+                                if field in params and params[field]:
+                                    param_lines.append(f"  {field.replace('_', ' ').title()}: {params[field]}")
+                            # Optional fields next
+                            for field in ['sub_category', 'priority', 'complainant_type', 'expected_resolution']:
+                                if field in params and params[field]:
+                                    param_lines.append(f"  {field.replace('_', ' ').title()}: {params[field]}")
+                            formatted_params = "\n".join(param_lines)
+                            formatted.append(f"{tool.upper()} EXTRACTED SUCCESSFULLY:\n{formatted_params}\n")
+                            logger.info(f"✅ Grievance extracted: {params.get('category', 'N/A')} | {params.get('location', 'N/A')}")
+                        else:
+                            # Edge case: success but no params
+                            formatted.append(f"{tool.upper()} COMPLETED:\nGrievance processed but no parameters extracted.\n")
+                            logger.warning(f"⚠️ Grievance success but params empty")
+                    else:
+                        # Grievance error (parsing failed, exception, etc.)
+                        error_msg = result.get('error', 'Unknown error during grievance extraction')
+                        formatted.append(f"{tool.upper()} ERROR:\n{error_msg}\n")
+                        logger.error(f"❌ Grievance tool error: {error_msg}")
                     continue
                 
                 # Handle RAG-style result
