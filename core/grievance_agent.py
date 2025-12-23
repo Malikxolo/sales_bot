@@ -79,6 +79,7 @@ class GrievanceAgent:
         detected_language = "english"
         english_query = query
         original_query = query
+        grievance_id = None
         
         try:
             # STEP 1: Language Detection (if enabled)
@@ -132,7 +133,7 @@ class GrievanceAgent:
                 not grievance_result.get("needs_clarification")):
                 params = grievance_result.get("params")
                 if params:
-                    await self._post_grievance_to_backend(params, user_id)
+                    grievance_id = await self._post_grievance_to_backend(params, user_id)
             
             # STEP 5: Generate response
             response_start = datetime.now()
@@ -143,7 +144,8 @@ class GrievanceAgent:
                 chat_history,
                 memories=memories,
                 detected_language=detected_language,
-                original_query=original_query
+                original_query=original_query,
+                grievance_id=grievance_id
             )
             response_time = (datetime.now() - response_start).total_seconds()
             logger.info(f"💬 Response generated in {response_time:.2f}s")
@@ -168,6 +170,7 @@ class GrievanceAgent:
                 "analysis": analysis,
                 "tool_results": tool_results,
                 "tools_used": tools_to_use,
+                "grievance_id": grievance_id,
                 "processing_time": {
                     "analysis": analysis_time,
                     "tools": tool_time,
@@ -604,11 +607,11 @@ Examples:
             logger.error(f"❌ Ward resolution failed: {e}")
             return None
        
-    async def _post_grievance_to_backend(self, params: dict, user_id: str):
-        """Post successful grievance data to backend"""
+    async def _post_grievance_to_backend(self, params: dict, user_id: str) -> Optional[str]:
+        """Post successful grievance data to backend and return grievance ID if available"""
         if not self.backend_url:
             logger.warning("⚠️ GRIEVANCE_BACKEND_URL not set, skipping backend posting")
-            return
+            return None
         
                 
         logger.info(f"params before posting: {params}")
@@ -631,19 +634,32 @@ Examples:
             async with aiohttp.ClientSession() as session:
                 async with session.post(self.backend_url, json=payload) as response:
                     if response.status in [200, 201]:
+                        response_data = await response.json()
                         logger.info("✅ Grievance posted to backend successfully")
+                        logger.info(f"   Backend Response: {response_data}")
+                        
+                        # Extract and log grievance ID
+                        grievance_id = response_data.get('_id')
+                        if grievance_id:
+                            logger.info(f"📋 Generated Grievance ID: {grievance_id}")
+                            return grievance_id
+                        else:
+                            logger.warning("⚠️ No 'grievanceId' found in backend response")
+                            return None
                     else:
                         response_text = await response.text()
                         logger.error(f"❌ Failed to post grievance: {response.status} {response_text}")
                         logger.error(f"   Payload sent: {payload}")
+                        return None
         except Exception as e:
             logger.error(f"❌ Error posting grievance to backend: {e}")
             logger.error(f"   Payload was: {payload}")
+            return None
     
     async def _generate_response(self, query: str, analysis: Dict, tool_results: Dict, 
                                   chat_history: List[Dict], memories: str = "",
                                   detected_language: str = "english", 
-                                  original_query: str = None) -> str:
+                                  original_query: str = None, grievance_id: Optional[str] = None) -> str:
         """Generate response for DM office context"""
         
         if original_query is None:
@@ -682,6 +698,8 @@ UNDERSTOOD INTENT: {intent}
 TOOL DATA:
 {tool_data}
 
+GRIEVANCE ID: {grievance_id if grievance_id else "Not available"}
+
 CONVERSATION CONTEXT:
 - User Emotion: {sentiment.get('primary_emotion', 'calm')} ({sentiment.get('intensity', 'medium')})
 - Grievance Related: {is_grievance}
@@ -693,6 +711,7 @@ FOR GRIEVANCE REGISTRATION:
   * Confirm complaint is registered
   * Mention the category and location extracted
   * Provide reassurance that action will be taken
+  * Include the GRIEVANCE ID in the response if available
   * DO NOT ask follow-up questions after successful registration
 
 - If grievance tool NEEDS CLARIFICATION:
