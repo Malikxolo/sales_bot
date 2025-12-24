@@ -984,6 +984,7 @@ class ToolManager:
         # Grievance integration
         self._grievance_agent = None
         self._grievance_enabled = None  # Auto-detect from env
+        self._grievance_status_url = os.getenv("GRIEVANCE_STATUS_URL")  # URL for fetching grievance status
         
         self._initialize_tools()
         
@@ -1395,6 +1396,11 @@ class ToolManager:
         """Check if Grievance tool is available"""
         return self._grievance_agent is not None and self._grievance_enabled
     
+    @property
+    def grievance_status_available(self) -> bool:
+        """Check if Grievance Status tool is available"""
+        return self._grievance_status_url is not None
+    
     def get_zapier_tools(self) -> List[str]:
         """Get list of available Zapier tool names"""
         if self._zapier_manager:
@@ -1455,6 +1461,9 @@ class ToolManager:
         if self._grievance_agent and self._grievance_enabled:
             tools.append("grievance")
         
+        if self._grievance_status_url:
+            tools.append("grievance_status")
+        
         return tools
     
     def get_tool_descriptions(self) -> Dict[str, str]:
@@ -1467,6 +1476,10 @@ class ToolManager:
         # Add grievance description if available
         if self._grievance_agent and self._grievance_enabled:
             descriptions["grievance"] = "Extract structured grievance parameters from natural language complaints (for DM grievance tracking)"
+        
+        # Add grievance_status description if available
+        if self._grievance_status_url:
+            descriptions["grievance_status"] = "Fetch status of a grievance by its ID (track complaint progress)"
         
         return descriptions
     
@@ -1724,6 +1737,64 @@ class ToolManager:
                     "error": f"Grievance tool execution failed: {str(e)}",
                     "tool_name": tool_name,
                     "provider": "grievance_agent"
+                }
+        
+        # Check if it's a Grievance Status tool
+        if tool_name == "grievance_status" and self._grievance_status_url:
+            logger.info(f"🔧 Executing Grievance Status tool")
+            
+            try:
+                grievance_id = kwargs.get("grievance_id") or kwargs.get("query", "")
+                
+                if not grievance_id:
+                    return {
+                        "success": False,
+                        "error": "No grievance ID provided",
+                        "tool_name": tool_name,
+                        "provider": "grievance_status"
+                    }
+                
+                # Fetch status from backend
+                async with aiohttp.ClientSession() as session:
+                    status_url = f"{self._grievance_status_url}/{grievance_id}"
+                    async with session.get(status_url) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            logger.info(f"✅ Grievance status fetched for ID: {grievance_id}")
+                            logger.info(f"📄 Backend response: {data}")
+                            return {
+                                "success": True,
+                                "grievance_id": grievance_id,
+                                "status": data.get("status"),
+                                "result": data,
+                                "tool_name": tool_name,
+                                "provider": "grievance_status"
+                            }
+                        elif response.status == 404:
+                            logger.warning(f"⚠️ Grievance not found: {grievance_id}")
+                            return {
+                                "success": False,
+                                "error": f"Grievance with ID '{grievance_id}' not found",
+                                "tool_name": tool_name,
+                                "provider": "grievance_status"
+                            }
+                        else:
+                            error_text = await response.text()
+                            logger.error(f"❌ Grievance status fetch failed: {response.status}")
+                            return {
+                                "success": False,
+                                "error": f"Failed to fetch grievance status: {error_text}",
+                                "tool_name": tool_name,
+                                "provider": "grievance_status"
+                            }
+                
+            except Exception as e:
+                logger.error(f"❌ Grievance status tool error: {str(e)}")
+                return {
+                    "success": False,
+                    "error": f"Grievance status fetch failed: {str(e)}",
+                    "tool_name": tool_name,
+                    "provider": "grievance_status"
                 }
         
         # Standard tool execution

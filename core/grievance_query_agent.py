@@ -156,8 +156,15 @@ PARAMETER DEFINITIONS:
 REQUIRED PARAMETERS (you MUST extract or ask for ALL of these):
 
 1. category*: Which government department/service?
-   Valid values: Water Supply, PDS (Ration), Revenue (Land Records), Police (Law & Order), 
-   Health, Education, Public Works (Roads/Electricity), Panchayati Raj, Social Welfare, Sanitation, Others
+   Valid values: PUBLIC_WORKS, POLICE, ELECTRICITY, REVENUE, HEALTH, EDUCATION, PDS, MUNICIPAL
+   - PUBLIC_WORKS: Roads, water supply, drains, sewage, street lights, bridges, footpaths
+   - POLICE: Theft, crime, FIR, law & order, police inaction, missing person
+   - ELECTRICITY: Power supply, power cut, electric connection, transformer, meter
+   - REVENUE: Land records, property, tehsil, patwari, registry, mutation
+   - HEALTH: Hospital, PHC, medicines, ambulance, sanitation, epidemic
+   - EDUCATION: School, college, teacher, scholarship, MDM
+   - PDS: Ration card, ration shop, kerosene, food supply
+   - MUNICIPAL: Garbage, cleanliness, encroachment, building permission
 
 2. sub_category*: Specific issue type within category
    Examples for Water Supply: "No Water Connection", "Water Quality Issue", "Irregular Supply"
@@ -203,6 +210,11 @@ EXTRACTION RULES:
 6. If contact info not provided, ASK for it - we need either phone or email
 7. If expectedResolution not mentioned, infer a reasonable one based on the grievance type
 8. All enum values (priority, contactType, complainantType) must be UPPERCASE
+9. VALIDATE before filling fields - if data doesn't fit the expected format/hierarchy, ask for clarification:
+   - LOCATION: User may give city/town name instead of district. Verify: is this a district or city? If it's a city/town, you need the actual district name. Example: "Bina" is a city in Sagar district - if unsure of the correct district, ask user to confirm.
+   - PHONE: Must be valid 10-digit Indian number (with or without +91). If format is wrong, ask for correction.
+   - EMAIL: Must have valid email format. If invalid, ask for correction.
+   - Don't blindly trust user input - validate it fits the required field type.
 
 RESPONSE FORMAT (JSON only, no markdown):
 
@@ -256,10 +268,10 @@ EXAMPLES:
 Input: "Main Ravi Kumar hun, Ward 5 Lucknow mein log 3 mahine se ration nahi mil raha, dealer ghar pe nahi milta. Mera number +919876543210 hai. Jaldi kuch karo"
 Output:
 {
-  "category": "PDS (Ration)",
+  "category": "PDS",
   "sub_category": "Dealer Misconduct",
   "location": {
-    "state": "Uttar Pradesh",
+    "state": null,
     "district": "Lucknow",
     "ward": "Ward 5"
   },
@@ -273,30 +285,32 @@ Output:
   "complainantType": "GROUP",
   "expectedResolution": "Ensure regular ration distribution and dealer accountability within 7 days",
   "description": "People not getting ration for 3 months, dealer not available at home",
-  "needs_clarification": false
+  "needs_clarification": true,
+  "missing_fields": ["location.state"],
+  "clarification_message": "Kripya batayein: Aap kis state mein hain?"
 }
 
-Input: "Pune ke Ward 12 mein paani nahi aa raha 2 hafton se"
+Input: "Ward 12 mein paani nahi aa raha 2 hafton se"
 Output:
 {
-  "category": "Water Supply",
-  "sub_category": "Irregular Supply",
+  "category": "PUBLIC_WORKS",
+  "sub_category": "Irregular Water Supply",
   "location": {
-    "state": "Maharashtra",
-    "district": "Pune",
+    "state": null,
+    "district": null,
     "ward": "Ward 12"
   },
   "priority": "HIGH",
   "description": "No water supply for 2 weeks",
   "needs_clarification": true,
-  "missing_fields": ["submittedBy.name", "submittedBy.contactDetails"],
-  "clarification_message": "Kripya batayein: 1) Aapka naam kya hai? 2) Aapka phone number ya email kya hai?"
+  "missing_fields": ["location.state", "location.district", "submittedBy.name", "submittedBy.contactDetails"],
+  "clarification_message": "Kripya batayein: 1) Aap kis state aur district mein hain? 2) Aapka naam kya hai? 3) Aapka phone number ya email kya hai?"
 }
 
 Input: "School mein problem hai"
 Output:
 {
-  "category": "Education",
+  "category": "EDUCATION",
   "needs_clarification": true,
   "missing_fields": ["sub_category", "location.state", "location.district", "location.ward", "submittedBy.name", "submittedBy.contactDetails", "description"],
   "clarification_message": "Kripya batayein: 1) Kaun sa school aur kahan hai (state, district, ward)? 2) Exactly kya problem hai? 3) Aapka naam aur phone number/email?"

@@ -20,7 +20,7 @@ load_dotenv()
 from os import getenv
 # from mem0 import AsyncMemory
 from functools import partial
-from .config import AddBackgroundTask, memory_config, SARVAM_SUPPORTED_LANGUAGES
+from .config import AddBackgroundTask, memory_config
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class GrievanceAgent:
     Only 3 prompts: Language Detection, Analysis, Response Generation
     """
     
-    def __init__(self, llm, tool_manager, language_detector_llm=None, indic_llm=None):
+    def __init__(self, llm, tool_manager, language_detector_llm=None):
         """
         Initialize GrievanceAgent.
         
@@ -40,16 +40,14 @@ class GrievanceAgent:
             llm: Single LLM for analysis and response (meta-llama/llama-3.3-70b-instruct)
             tool_manager: ToolManager with RAG and Grievance tools
             language_detector_llm: Optional LLM for language detection
-            indic_llm: Optional LLM for Indic language responses
         """
         self.llm = llm
-        self.indic_llm = indic_llm if indic_llm else llm
         self.language_detector_llm = language_detector_llm
         self.language_detection_enabled = language_detector_llm is not None
         self.tool_manager = tool_manager
         
-        # Only RAG and Grievance tools
-        self.available_tools = ["rag", "grievance"]
+        # RAG, Grievance, and Grievance Status tools
+        self.available_tools = ["rag", "grievance", "grievance_status"]
         
         # Memory for context
         # self.memory = AsyncMemory(memory_config)
@@ -58,6 +56,7 @@ class GrievanceAgent:
         
         # Check tool availability
         self._grievance_available = tool_manager.grievance_available
+        self._grievance_status_available = tool_manager.grievance_status_available
         
         # Backend URL for posting grievances
         self.backend_url = getenv("GRIEVANCE_BACKEND_URL")
@@ -67,6 +66,7 @@ class GrievanceAgent:
         logger.info(f"   Available tools: {self.available_tools}")
         logger.info(f"   Language Detection: {'ENABLED ✅' if self.language_detection_enabled else 'DISABLED ⚠️'}")
         logger.info(f"   Grievance Tool: {'ENABLED ✅' if self._grievance_available else 'DISABLED ⚠️'}")
+        logger.info(f"   Grievance Status Tool: {'ENABLED ✅' if self._grievance_status_available else 'DISABLED ⚠️'}")
         logger.info(f"   Backend URL: {self.backend_url}")
     
     async def process_query(self, query: str, chat_history: List[Dict] = None, user_id: str = None, mode: str = None, source: Optional[str] = None) -> Dict[str, Any]:
@@ -120,20 +120,29 @@ class GrievanceAgent:
             tool_time = (datetime.now() - tool_start).total_seconds()
             logger.info(f"🔧 Tools executed in {tool_time:.2f}s")
             
-            # Post to backend if grievance successful
-            # Find any grievance result (could be 'grievance' or 'grievance_0', etc.)
-            grievance_result = None
+            # Post ALL successful grievances to backend (not just first one)
+            grievance_ids = []  # Track all posted grievance IDs
             for key, val in tool_results.items():
-                if key == 'grievance' or (key.startswith('grievance_') and key.split('_')[-1].isdigit()):
-                    grievance_result = val
-                    break
+                # Check if this is a grievance result (handles 'grievance', 'grievance_0', 'grievance_1', etc.)
+                is_grievance = key == 'grievance' or (key.startswith('grievance_') and key.split('_')[-1].isdigit())
+                
+                if is_grievance and isinstance(val, dict):
+                    if val.get("success") and not val.get("needs_clarification"):
+                        params = val.get("params")
+                        if params:
+                            posted_id = await self._post_grievance_to_backend(params, user_id)
+                            if posted_id:
+                                grievance_ids.append(posted_id)
+                                # Store the ID back into the result for response generation
+                                val["grievance_id"] = posted_id
+                            logger.info(f"   📤 Posted grievance '{key}': ID={posted_id}")
+                    elif val.get("needs_clarification"):
+                        logger.info(f"   ⏳ Grievance '{key}' needs clarification, skipping backend post")
             
-            if (grievance_result and 
-                grievance_result.get("success") and 
-                not grievance_result.get("needs_clarification")):
-                params = grievance_result.get("params")
-                if params:
-                    grievance_id = await self._post_grievance_to_backend(params, user_id)
+            # Set grievance_id for backward compatibility (first successful one)
+            grievance_id = grievance_ids[0] if grievance_ids else None
+            if len(grievance_ids) > 1:
+                logger.info(f"📋 Multiple grievances posted: {grievance_ids}")
             
             # STEP 5: Generate response
             response_start = datetime.now()
@@ -268,7 +277,16 @@ Examples:
     async def _grievance_analysis(self, query: str, chat_history: List[Dict] = None, memories: str = "") -> Dict[str, Any]:
         """Analyze query for DM office grievance handling with multi-dimensional reasoning"""
         
-        context = chat_history[-4:] if chat_history else []
+        # Format chat history for embedding in prompt
+        formatted_history = ""
+        if chat_history:
+            history_entries = []
+            for msg in chat_history[-10:]:  # Last 10 messages for context
+                role = msg.get('role', 'unknown').upper()
+                content = msg.get('content', '')
+                history_entries.append(f"{role}: {content}")
+            formatted_history = "\n".join(history_entries)
+        
         current_date = datetime.now().strftime("%B %d, %Y")
         
         analysis_prompt = f"""You are analyzing queries for a grievance system.
@@ -276,20 +294,31 @@ Examples:
 
     DATE: {current_date}
 
-    USER'S QUERY: "{query}"
-
-    CONVERSATION HISTORY: {context}
-
     Available tools:
     - rag: Knowledge base retrieval (government policies, procedures, schemes, previous info)
     - grievance: Citizen complaints registration to DM office
-    Use for: complaint registration, shikayat, grievance reporting, samasyaa darj karna
-    The tool extracts category, location, description and asks for clarification if needed
+      Use for: complaint registration, shikayat, grievance reporting, samasyaa darj karna
+      The tool extracts category, location, description and asks for clarification if needed
+    - grievance_status: Check status of an existing grievance by ID
+      Use for: status check, track complaint, meri shikayat ka status, complaint kahan tak pahunchi
+      Requires: grievance ID (like GRV-12345 or complaint number)
+
+    CONVERSATION HISTORY (for context - check previous turns to understand follow-ups):
+    {formatted_history if formatted_history else 'No previous conversation.'}
+
+    CURRENT USER QUERY: "{query}"
 
     YOUR TASK: Deeply analyze the query and select appropriate tools.
 
     STEP 1: MULTI-TASK DETECTION
     Think naturally: Does this query ask for ONE thing or MULTIPLE things?
+
+    IMPORTANT - CLARIFICATION FOLLOW-UPS:
+    If user's current message is answering a clarification question from previous turn (e.g., providing district, state, phone number):
+    - Check CONVERSATION HISTORY to see what grievances were pending
+    - Maintain the SAME number of grievances that needed clarification
+    - Include the new info (district/state/etc) in EACH grievance query
+    Example: If 2 grievances (drainage + electricity) asked for district, and user says "Sagar district", create 2 grievance tools with the district info added.
 
     Examples:
     - "Water supply problem in Gomti Nagar" → 1 task (just grievance)
@@ -340,6 +369,12 @@ Examples:
     - Don't assume one rag search covers everything
     - If multiple info needs, add rag multiple times to tools_to_use list
 
+    For GRIEVANCE STATUS tasks:
+    - Select `grievance_status` when user wants to check status of existing complaint
+    - Keywords: status, track, kahan tak, complaint number, GRV-, shikayat ka status, meri complaint
+    - User MUST provide a grievance ID (like GRV-12345, complaint number, etc.)
+    - If user asks status but no ID provided, ask for the grievance ID first
+
     CRITICAL THINKING QUESTION:
     "If I only do 1 rag search for this query, will I get complete information?"
     - If NO → create multiple rag searches, one per information dimension
@@ -347,10 +382,11 @@ Examples:
     - User asks about policy in education AND health → needs 2 separate rag searches
 
     TOOL NAMING:
-    - Use simple names: rag, grievance (no numbers/indexes)
+    - Use simple names: rag, grievance, grievance_status (no numbers/indexes)
     - If multiple rag searches needed, add "rag" multiple times in tools_to_use list
     - Order in the list = execution order for sequential mode
     - Example: ["rag", "rag", "grievance"] means 2 rag searches then 1 grievance
+    - Example: ["grievance_status"] for status check with ID
 
     For NO tools:
     - Greetings, casual conversation
@@ -393,11 +429,12 @@ Examples:
     - Include ALL shared context in EVERY grievance query:
       * User's name (if mentioned anywhere in original query)
       * Contact info - phone/email (if mentioned anywhere)
-      * Common location (applies to all grievances from same area)
+      * Complete location (state, district, ward/colony - include ALL that user mentioned)
       * Any identity/address info that applies to multiple complaints
     - Include the specific issue details for that grievance
     - Do NOT split shared info - DUPLICATE it in each query
     - Do NOT assume or guess missing details
+    - NEVER drop any location info user provided - copy it exactly as mentioned
 
     CORRECT Example of multi-grievance splitting:
     User: "My name is Rahul, phone 9876543210. I live in Gomti Nagar. No water for 2 days and police not taking action on theft"
@@ -426,6 +463,15 @@ Examples:
     User: "Mera naam Priya hai, 8765432109. Bijli nahi aa rahi 3 din se, Lalbagh mein"
     tools_to_use: ["grievance"]
     enhanced_queries: ["Mera naam Priya hai, 8765432109, Lalbagh. Bijli nahi aa rahi 3 din se"]
+
+    Grievance Status queries:
+    - Pass the grievance ID directly as the query
+    - Extract ID from user message (GRV-12345, complaint number, etc.)
+    
+    Example:
+    User: "Meri shikayat GRV-12345 ka status kya hai?"
+    tools_to_use: ["grievance_status"]
+    enhanced_queries: ["GRV-12345"]
 
     STEP 6: ANALYZE SENTIMENT & STRATEGY
 
@@ -475,16 +521,17 @@ Examples:
     - Are my queries focused and specific?
     - Did I synthesize a clear semantic_intent?
     - CRITICAL: Did I include name/contact/location in EACH grievance query? (Don't lose shared context!)
+    - CRITICAL: Did I preserve FULL location (state, district, ward/colony) - NEVER drop state or district!
 
     Now analyze the query above."""
 
         try:
-            messages = chat_history[-4:] if chat_history else []
-            messages.append({"role": "user", "content": analysis_prompt})
+            # Chat history is already embedded in the analysis_prompt above
+            messages = [{"role": "user", "content": analysis_prompt}]
             
             response = await self.llm.generate(
                 messages,
-                system_prompt=f"You analyze queries for DM office grievance system. Date: {current_date}. Return valid JSON only.",
+                system_prompt=f"You analyze queries for DM office grievance system. The conversation history is provided in the prompt for context. Date: {current_date}. Return valid JSON only.",
                 temperature=0.1,
                 max_tokens=3000  # Increased for multi-dimensional analysis
             )
@@ -673,7 +720,15 @@ Examples:
         # Format tool results
         tool_data = self._format_tool_results(tool_results)
         
-        context = chat_history[-4:] if chat_history else []
+        # Format chat history for embedding in prompt
+        formatted_history = ""
+        if chat_history:
+            history_entries = []
+            for msg in chat_history[-6:]:  # Last 6 messages for context
+                role = msg.get('role', 'unknown').upper()
+                content = msg.get('content', '')
+                history_entries.append(f"{role}: {content}")
+            formatted_history = "\n".join(history_entries)
         
         response_prompt = f"""You are a helpful assistant for the District Magistrate (DM) Office grievance system.
 
@@ -719,6 +774,35 @@ FOR GRIEVANCE REGISTRATION:
   * Ask politely for missing information
   * Be patient
 
+FOR MULTIPLE GRIEVANCES (MIXED RESULTS):
+- If SOME grievances succeeded and SOME need clarification:
+  * First acknowledge the successfully registered grievances with their IDs
+  * Then ask for clarification for the ones that need more info
+  * Be clear about which complaint was registered and which needs more details
+  * Example: "Aapki bijli ki shikayat darj ho gayi (ID: XXX). Drainage ki shikayat ke liye kripya batayein..."
+
+- If ALL grievances succeeded:
+  * Confirm all complaints are registered
+  * Mention each category and their IDs
+  * Example: "Aapki dono shikayatein darj ho gayi hain - Bijli (ID: XXX) aur Drainage (ID: YYY)..."
+
+- If ALL grievances need clarification:
+  * Combine all missing information into one clear question
+  * Don't ask separately for each
+
+FOR GRIEVANCE STATUS CHECK:
+- If grievance_status tool SUCCESS:
+  * Share the current status of the complaint
+  * Mention the grievance ID user asked about
+  * Include relevant details (status, department, expected resolution if available)
+  * Be reassuring about the progress
+  * DO NOT mention registration - this is STATUS CHECK not registration
+
+- If grievance_status tool ERROR or NOT FOUND:
+  * Inform user the status couldn't be retrieved
+  * Ask them to verify the grievance ID
+  * Offer to help register a new complaint if needed
+
 FOR INFORMATION QUERIES (RAG):
 - Provide clear, accurate information from knowledge base
 - If info not available, say so honestly
@@ -732,13 +816,61 @@ TONE EXAMPLES:
 - Reassuring: "Aapki shikayat darj ho gayi hai, karyawahi ki jayegi..."
 - Helpful: "Main aapki madad kar sakta hoon..."
 
-CRITICAL RULES:
+WHATSAPP FORMAT RULES:
+- Keep responses between 200-350 characters
+- RAG responses can go up to 400 chars
+- If RAG is used AND the user asks in detail, responses can go up to 650 chars
+- Use emojis naturally for visual breaks (✅📋📍ℹ️)
+- Add line breaks between key information for readability
+- Be direct - no filler phrases
+- Use consistent structure: Put IDs/categories on separate lines with emojis, not inline with text
+
+RESPONSE PATTERNS (follow these structures):
+
+When BOTH grievances need clarification:
+"Shikayat darj karne ke liye batayein:
+
+[Question 1]
+[Question 2]
+
+📍 [Your closing]"
+
+When ALL grievances registered:
+"✅ [Number] shikayatein darj:
+
+1️⃣ [Category 1] - ID: [ID1]
+2️⃣ [Category 2] - ID: [ID2]
+
+[Location and next steps]"
+
+When SOME registered, SOME need clarification:
+"✅ Darj: [Category] - ID: [ID]
+
+[Pending category] ke liye batayein: [Question]"
+
+When single grievance registered:
+"✅ Shikayat darj
+
+📋 ID: [ID]
+🏷️ [Category] - [Location]
+
+[Reassurance or next steps]"
+
+CONVERSATION HISTORY (for context - check what was discussed before):
+{formatted_history if formatted_history else 'No previous conversation.'}
+
+---
+
+CURRENT USER QUERY TO RESPOND TO: "{original_query}"
+
+REMINDER - CRITICAL RULES:
 1. NEVER repeat or restate what the user said
 2. Start directly with your response - no preamble
 3. NEVER say "Let me check..." or "I found..."
 4. Match user's emotional energy
 5. Keep response focused and actionable
 6. Respond in {detected_language} ONLY
+7. Use conversation history to understand context but respond to CURRENT query
 
 Now respond in {detected_language}:"""
 
@@ -749,26 +881,17 @@ Now respond in {detected_language}:"""
                 "detailed": 700
             }.get(strategy.get('length', 'medium'), 500)
             
-            messages = chat_history[-4:] if chat_history else []
-            messages.append({"role": "user", "content": response_prompt})
+            # Chat history is already embedded in the response_prompt above
+            messages = [{"role": "user", "content": response_prompt}]
             
             language = detected_language.lower()
             
-            # Use appropriate LLM based on language
-            if language in SARVAM_SUPPORTED_LANGUAGES:
-                response = await self.indic_llm.generate(
-                    messages,
-                    temperature=0.4,
-                    max_tokens=max_tokens,
-                    system_prompt=f"Respond in {detected_language} only. Use the same script as the user."
-                )
-            else:
-                response = await self.llm.generate(
-                    messages,
-                    temperature=0.4,
-                    max_tokens=max_tokens,
-                    system_prompt=f"Respond in {detected_language} only. Use the same script as the user."
-                )
+            response = await self.llm.generate(
+                messages,
+                temperature=0.4,
+                max_tokens=max_tokens,
+                system_prompt=f"You are a DM Office grievance assistant. Conversation history is provided in the prompt for context. Respond in {detected_language} only. Use the same script as the user."
+            )
             
             response = self._clean_response(response)
             logger.info(f"💬 Generated Response: {response}")
@@ -802,11 +925,23 @@ Now respond in {detected_language}:"""
                         params = result.get('params', {})
                         if hasattr(params, 'to_dict'):
                             params = params.to_dict()
-                        formatted.append(f"GRIEVANCE REGISTERED:\n- Category: {params.get('category', 'N/A')}\n- Location: {params.get('location', 'N/A')}\n- Description: {params.get('description', 'N/A')}\n- Priority: {params.get('priority', 'N/A')}")
+                        grv_id = result.get('grievance_id', 'Pending')
+                        formatted.append(f"GRIEVANCE REGISTERED ({tool_name}):\n- Grievance ID: {grv_id}\n- Category: {params.get('category', 'N/A')}\n- Location: {params.get('location', 'N/A')}\n- Description: {params.get('description', 'N/A')}\n- Priority: {params.get('priority', 'N/A')}")
                     elif result.get('needs_clarification'):
-                        formatted.append(f"GRIEVANCE NEEDS CLARIFICATION:\n{result.get('clarification_message', 'Please provide more details.')}\nMissing: {result.get('missing_fields', [])}")
+                        formatted.append(f"GRIEVANCE NEEDS CLARIFICATION ({tool_name}):\n{result.get('clarification_message', 'Please provide more details.')}\nMissing: {result.get('missing_fields', [])}")
                     elif result.get('error'):
-                        formatted.append(f"GRIEVANCE ERROR: {result.get('error')}")
+                        formatted.append(f"GRIEVANCE ERROR ({tool_name}): {result.get('error')}")
+            
+            elif base_tool == 'grievance_status':
+                if isinstance(result, dict):
+                    if result.get('success'):
+                        grievance_id = result.get('grievance_id', 'N/A')
+                        status = result.get('status', 'N/A')
+                        data = result.get('result', {})
+                        # Format key details from the status response
+                        formatted.append(f"GRIEVANCE STATUS:\n- Grievance ID: {grievance_id}\n- Status: {status}\n- Details: {data}")
+                    elif result.get('error'):
+                        formatted.append(f"GRIEVANCE STATUS ERROR: {result.get('error')}")
         
         return "\n\n".join(formatted) if formatted else "No tool data available."
     

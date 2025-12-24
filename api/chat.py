@@ -242,8 +242,7 @@ async def lifespan(app: FastAPI):
         agent = DMGrievanceAgent(
             llm=grievance_agent_llm,
             tool_manager=tool_manager,
-            language_detector_llm=language_detector_llm,
-            indic_llm=indic_llm
+            language_detector_llm=language_detector_llm
         )
         logging.info(f"✅ GrievanceAgent initialized with model: {settings.grievance_agent_model}")
     else:
