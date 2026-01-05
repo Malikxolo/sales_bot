@@ -23,6 +23,8 @@ from .redis_manager import RedisCacheManager
 
 logger = logging.getLogger(__name__)
 
+use_memory = getenv("USE_MEMORY", "false").lower() == "true"
+
 
 
 class SalesAgent:
@@ -120,7 +122,10 @@ class SalesAgent:
             else:
                 # Retrieve memories
                 eli = time.time()
-                memory_results = await self.memory.search(processing_query[:100], user_id=user_id, limit=5)
+                if use_memory:
+                    memory_results = await self.memory.search(processing_query[:100], user_id=user_id, limit=5)
+                else:
+                    memory_results = {"results": []}
                 logger.info(f" Memory retrieval took {time.time() - eli:.2f}s")
                 # Detailed mem0 logging
                 logger.info(f"🧠 MEM0 SEARCH RESULTS:")
@@ -227,7 +232,10 @@ class SalesAgent:
             
             # Get memories for response generation if not cached
             if not cached_analysis:
-                memory_results = await self.memory.search(processing_query, user_id=user_id, limit=5)
+                if use_memory:
+                    memory_results = await self.memory.search(processing_query, user_id=user_id, limit=5)
+                else:
+                    memory_results = {"results": []}
                 
                 # Detailed mem0 logging
                 logger.info(f"🧠 MEM0 SEARCH RESULTS (Response Generation Path):")
@@ -265,15 +273,16 @@ class SalesAgent:
                 original_query=original_query  # Pass original query
             )
             
-            await self.task_queue.put(
-                AddBackgroundTask(
-                    func=partial(self.memory.add),
-                    params=(
-                        [{"role": "user", "content": original_query}, {"role": "assistant", "content": final_response}],
-                        user_id,
-                    ),
+            if use_memory:
+                await self.task_queue.put(
+                    AddBackgroundTask(
+                        func=partial(self.memory.add),
+                        params=(
+                            [{"role": "user", "content": original_query}, {"role": "assistant", "content": final_response}],
+                            user_id,
+                        ),
+                    )
                 )
-            )
             response_time = (datetime.now() - response_start).total_seconds()
             logger.info(f" Response generated in {response_time:.2f}s")
             
