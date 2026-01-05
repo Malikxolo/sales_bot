@@ -1264,7 +1264,7 @@ Return ONLY valid JSON:
             logger.info(f" CALLING HEART LLM for response generation...")
             logger.info(f" Max tokens: {max_tokens}, Temperature: 0.4")
             
-            messages = chat_history[-4:] if chat_history else []
+            messages = chat_history[-10:] if chat_history else []
             messages.append({"role": "user", "content": response_prompt})
             
             response = await self.response_llm.generate(

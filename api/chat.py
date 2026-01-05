@@ -329,7 +329,7 @@ async def chat_brain_heart_system(request: ChatMessage = Body(...)):
     try:
         user_id = request.userid
         user_query = request.user_query
-        chat_history = request.chat_history[-4:] if hasattr(request, 'chat_history') and request.chat_history else []
+        chat_history = request.chat_history if hasattr(request, 'chat_history') and request.chat_history else []
         mode = request.mode if hasattr(request, 'mode') else None
         source = request.source if hasattr(request, 'source') else 'whatsapp'
         
