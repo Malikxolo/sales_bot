@@ -18,7 +18,6 @@ from typing import Dict, Any, Optional, List
 import sys
 import logging.config
 import requests
-from chroma_log_handler import ChromaLogHandler
 from dotenv import load_dotenv
 import aiohttp
 from core.path_security import validate_safe_path, create_safe_user_path, sanitize_filename, sanitize_path_component
@@ -795,7 +794,7 @@ def render_rag_sidebar():
 # Import core system
 try:
     from core import (
-        Config, LLMClient, OptimizedAgent, 
+        Config, LLMClient, 
         ToolManager, BrainHeartException
     )
     SYSTEM_AVAILABLE = True
@@ -846,15 +845,7 @@ async def create_agents_async(config, brain_agent_config, heart_agent_config, ro
         # Create tool manager
         tool_manager = ToolManager(config, brain_llm, web_model_config, use_premium_search)
         
-        # Initialize Zapier MCP integration (if configured)
-        # This enables 8000+ app integrations via Zapier
-        await tool_manager.initialize_zapier_async()
-        
-        # Create optimized agent with dedicated router
-        optimized_agent = OptimizedAgent(brain_llm, heart_llm, tool_manager, router_llm)
-        
         return {
-            "optimized_agent": optimized_agent,
             "tool_manager": tool_manager,
             "status": "success"
         }
@@ -904,7 +895,7 @@ def display_web_model_selector(config, agent_name: str):
     return model
 
 
-async def process_query_real(query: str, optimized_agent, style: str, user_id: str = None, chat_history: List = None, source: str = "website") -> Dict[str, Any]:
+async def process_query_real(query: str, style: str, user_id: str = None, chat_history: List = None, source: str = "website") -> Dict[str, Any]:
     """Process query through Optimized Agent"""
     
     try:
@@ -1832,18 +1823,6 @@ def main():
                 else:
                     # Process query with optimized agent
                     
-                    if not st.session_state.get("agent_worker_started", False):
-                        try:
-                            # Call the cached start function with the actual agent
-                            start_agent_background_worker(agents_result["optimized_agent"])
-                            st.session_state["agent_worker_started"] = True
-                            logger.info("Agent background worker requested (st.session_state set).")
-                        except Exception as e:
-                            logger.error(f"Failed to start background worker: {e}")
-                            # Optionally show to user
-                            if show_debug:
-                                st.warning(f"Background worker start error: {e}")
-                                
                     # Determine query target based on role and team
                     if st.session_state.org_id:
                         # Organization mode
@@ -1866,7 +1845,6 @@ def main():
                                 
                     result = asyncio.run(process_query_real(
                         query, 
-                        agents_result["optimized_agent"], 
                         style,
                         user_id=query_target_id,
                         chat_history=st.session_state.chat_history,

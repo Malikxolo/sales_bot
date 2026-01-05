@@ -55,9 +55,7 @@ from core import (
 from core.sales_agent import SalesAgent
 from core.logging_security import (
     safe_log_response,
-    safe_log_user_data,
-    safe_log_error,
-    safe_log_query
+    safe_log_user_data
 )
 import json
 import shutil
@@ -185,46 +183,6 @@ async def lifespan(app: FastAPI):
     sales_analysis_llm = LLMClient(sales_analysis_config)
     sales_response_llm = LLMClient(sales_response_config)
     tool_manager = ToolManager(config, brain_llm, web_model_config, settings.use_premium_search)
-
-    # Initialize Zapier MCP integration
-    try:
-        zapier_initialized = await tool_manager.initialize_zapier_async()
-        if zapier_initialized:
-            logging.info("✅ Zapier MCP integration initialized successfully")
-        else:
-            logging.warning("⚠️ Zapier MCP integration not configured (ZAPIER_MCP_URL not set)")
-    except Exception as e:
-        logging.error(f"❌ Failed to initialize Zapier MCP: {e}")
-
-    # Initialize MongoDB MCP integration
-    try:
-        mongodb_initialized = await tool_manager.initialize_mongodb_async()
-        if mongodb_initialized:
-            logging.info("✅ MongoDB MCP integration initialized successfully")
-        else:
-            logging.warning("⚠️ MongoDB MCP integration not configured (MONGODB_MCP_CONNECTION_STRING not set)")
-    except Exception as e:
-        logging.error(f"❌ Failed to initialize MongoDB MCP: {e}")
-
-    # Initialize Redis MCP integration
-    try:
-        redis_initialized = await tool_manager.initialize_redis_async()
-        if redis_initialized:
-            logging.info("✅ Redis MCP integration initialized successfully")
-        else:
-            logging.warning("⚠️ Redis MCP integration not configured (REDIS_MCP_URL not set)")
-    except Exception as e:
-        logging.error(f"❌ Failed to initialize Redis MCP: {e}")
-
-    # Initialize Grievance tool
-    try:
-        grievance_initialized = await tool_manager.initialize_grievance_async()
-        if grievance_initialized:
-            logging.info("✅ Grievance tool initialized successfully")
-        else:
-            logging.warning("⚠️ Grievance tool not enabled (GRIEVANCE_ENABLED=false)")
-    except Exception as e:
-        logging.error(f"❌ Failed to initialize Grievance tool: {e}")
 
     # Initialize language detector if enabled
     language_detector_llm = None
