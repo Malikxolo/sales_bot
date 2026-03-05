@@ -88,7 +88,11 @@ async def mog_query(user_id: str, chat_history:List, query: str, source: str = "
         "userid": user_id,
         "chat_history": chat_history,
         "user_query": query,
-        "source": source
+        "source": source,
+        "source": source,
+        "businessId": "foodn-8b4c78",
+        "email": "aakashisjesus@gmail.com",
+        "collection_ids": ["69490fbb-ab43-43ef-a0c7-f54a9e4bfd99"]
     }
 
     async with aiohttp.ClientSession() as session:
@@ -345,6 +349,18 @@ def create_collection(user_id: str, collection_name: str, files: List):
         user_path = create_safe_user_path("db_collection", safe_user_id)
         os.makedirs(user_path, exist_ok=True)
         
+        
+        try:
+            client = kb_manager._get_chroma_client()
+            all_collections = client.list_collections()
+            user_prefix = f"{safe_user_id}_"
+            
+            for collection in all_collections:
+                if collection.name.startswith(user_prefix):
+                    client.delete_collection(name=collection.name)
+                    logger.info(f"Deleted remote collection: {collection.name}")
+        except Exception as e:
+            logger.warning(f"Could not clean up remote collections: {e}")
         
         # STEP 2: Remove existing local collections 
         for existing in os.listdir(user_path):

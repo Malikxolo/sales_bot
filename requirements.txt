@@ -11,18 +11,18 @@ fastapi
 
 # LLM providers (choose based on your needs)
 openai>=1.0.0
-anthropic>=0.7.0
-groq>=0.4.0
+# anthropic>=0.7.0
+# groq>=0.4.0
 
 # Data processing
-pandas>=1.5.0
-numpy>=1.21.0
+# pandas>=1.5.0
+# numpy>=1.21.0
 
 # RAG DEPENDENCIES 
 chromadb>=0.4.0
 langchain>=0.1.0
 langchain-community>=0.0.20
-langchain-openai
+# langchain-openai
 PyJWT>=2.0.0
 
 # PDF and DOCX support for LangChain
@@ -42,26 +42,27 @@ google-api-python-client>=2.70.0
 google-auth>=2.15.0
 
 # Social media APIs
-praw>=7.6.0  # Reddit API
+# praw>=7.6.0  # Reddit API
 
 # Web scraping (for Instagram/Facebook)
 beautifulsoup4>=4.11.0
-lxml>=4.9.0
+# lxml>=4.9.0
 
 # Optional: Enhanced functionality
-nltk>=3.8.0
-textblob>=0.17.0
-matplotlib>=3.6.0
+# nltk>=3.8.0
+# textblob>=0.17.0
+# matplotlib>=3.6.0
 
 # Development (optional)
-pytest>=7.0.0
-black>=22.0.0
-python-json-logger
-python-multipart
+# pytest>=7.0.0
+# black>=22.0.0
+# python-json-logger
+# python-multipart
 
 mem0ai
 langchain-neo4j
-rank-bm25
+sentence-transformers
+# rank-bm25
 
 unstructured[md]
 fastapi
@@ -73,4 +74,4 @@ trafilatura
 
 # Subprocess MCP server runtime used by redis-mcp-server (provides `uvx` CLI)
 # Install `uv` so the `uvx` command is available for Redis MCP integration.
-uv>=0.7.0
+# uv>=0.7.0

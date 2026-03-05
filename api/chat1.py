@@ -60,6 +60,7 @@ from core.logging_security import (
 import json
 import shutil
 import asyncio
+import chromadb
 from pymongo import MongoClient
 
 def coerce_or_drop_team_id(md: dict) -> dict:
@@ -209,12 +210,30 @@ async def lifespan(app: FastAPI):
     # Initialize Organization Manager
     mongo_client = MongoClient(os.getenv('MONGODB_URI', 'mongodb://localhost:27017/'))
     org_manager = initialize_org_manager(mongo_client, database_name="knowledge_base")
-
-    # Initialize Weaviate RAG client (used for all bot queries)
-    from core.weaviate_rag import get_weaviate_rag_client
-    _weaviate_client = get_weaviate_rag_client()
-    _weaviate_client.health_check()
-    logging.info("✅ Weaviate RAG client initialized")
+    
+    # Initialize Knowledge Base Manager
+    chroma_client = chromadb.HttpClient(
+        host=os.getenv('CHROMA_HOST', 'http://localhost:8000'),
+        port=int(os.getenv('CHROMA_PORT', '8000'))
+    )
+    
+    embedding_function = embedding_functions.OpenAIEmbeddingFunction(
+        api_key=os.getenv('OPENAI_API_KEY'),
+        model_name=os.getenv('EMBEDDING_MODEL', 'text-embedding-3-small')
+    )
+    
+    kb_manager = initialize_kb_manager(
+        chroma_client=chroma_client,
+        mongo_client=mongo_client,
+        org_manager=org_manager,
+        redis_client=redis_client,
+        embedding_function=embedding_function,
+        database_name="knowledge_base"
+    )
+    # Create global collection using module-level helper
+    await create_global_collection()
+    
+    logging.info("✅ Organization Manager and Knowledge Base Manager initialized")
 
     agent.worker_task = asyncio.create_task(
         agent.background_task_worker()
@@ -254,6 +273,9 @@ class ChatMessage(BaseModel):
     userid: str
     chat_history: list[dict] = []
     user_query: str
+    businessId: Optional[str] = None
+    email: Optional[str] = None
+    collection_ids: Optional[List[str]] = None
     mode: Optional[str] = None
     source: Optional[str] = 'whatsapp'
     
@@ -314,10 +336,14 @@ async def chat_brain_heart_system(request: ChatMessage = Body(...)):
         mode = request.mode if hasattr(request, 'mode') else None
         source = request.source if hasattr(request, 'source') else 'whatsapp'
         
+        businessId = request.businessId if hasattr(request, 'businessId') else None
+        email = request.email if hasattr(request, 'email') else None
+        collection_ids = request.collection_ids if hasattr(request, 'collection_ids') else None
+        
         safe_log_user_data(user_id, 'brain_heart_chat', message_count=len(user_query))
         
         
-        result = await agent.process_query(user_query, chat_history, user_id)
+        result = await agent.process_query(user_query, chat_history, user_id, mode, source, businessId, email, collection_ids)
         
         if result["success"]:
             safe_log_response(result, level='info')
@@ -1498,25 +1524,42 @@ async def set_active_collection_endpoint(
 @router.get("/health/knowledge-base")
 async def health_check_kb():
     """
-    Health check for the Weaviate RAG backend.
+    Health check for knowledge base systems (ChromaDB + MongoDB).
     """
     try:
-        from core.weaviate_rag import get_weaviate_rag_client
-        import asyncio
-
-        loop = asyncio.get_event_loop()
-        weaviate_ok = await loop.run_in_executor(
-            None, get_weaviate_rag_client().health_check
-        )
-
+        from core.knowledge_base import kb_manager
+        
+        if kb_manager is None:
+            return JSONResponse(
+                content={"error": "Knowledge Base Manager not initialized"}, 
+                status_code=503
+            )
+        
         health_status = {
-            "weaviate_rag": "connected" if weaviate_ok else "error: unreachable",
+            "chromadb": "connected",
+            "mongodb": "connected",
             "timestamp": time.time()
         }
-        return JSONResponse(
-            content=health_status,
-            status_code=200 if weaviate_ok else 503
-        )
-
+        
+        # Test ChromaDB
+        try:
+            kb_manager.chroma_client.heartbeat()
+        except Exception as e:
+            health_status["chromadb"] = f"error: {str(e)}"
+        
+        # Test MongoDB
+        try:
+            kb_manager.mongo_client.admin.command('ping')
+        except Exception as e:
+            health_status["mongodb"] = f"error: {str(e)}"
+        
+        status_code = 200 if (health_status["chromadb"] == "connected" and 
+                              health_status["mongodb"] == "connected") else 503
+        
+        return JSONResponse(content=health_status, status_code=status_code)
+        
     except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=500)
+        return JSONResponse(
+            content={"error": str(e)}, 
+            status_code=500
+        )

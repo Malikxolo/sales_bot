@@ -15,79 +15,21 @@ from typing import Callable, Coroutine, Tuple, Any
 
 logger = logging.getLogger(__name__)
 
-# custom_fact_extraction_prompt = """
-#     You are an extractor. From the conversation below, return a JSON object with a single key "facts" whose value is a list of concise strings.
-
-#     Rules:
-#     - Include short declarative facts (e.g., "User loves pizza").
-#     - **Always** include user questions/enquiries as facts in the format: "User asked: <question text>".
-#     - Output only valid JSON.
-
-#     Examples:
-#     Input: "I love pizza." => {"facts":["User loves pizza"]}
-#     Input: "How do I reset my password?" => {"facts":["User asked for instruction on resetting password?"]}
-#     Input: "What is photosynthesis?" => {"facts":["User asked about photosynthesis?"]}
-
-#     DO NOT store assistant responses.
-#     Conversation:
-# """
-
 custom_fact_extraction_prompt = """
-    You are a memory extractor for a conversational SALES ASSISTANT.
+    You are an extractor. From the conversation below, return a JSON object with a single key "facts" whose value is a list of concise strings.
 
-    From the conversation below, return a JSON object with a single key "facts".
-    The value must be a list of concise, long-term memory statements.
-
-    Your goal is to extract information that helps the assistant:
-    - converse naturally in the future
-    - personalize responses
-    - understand buying intent and preferences
-
-    STRICT RULES:
-
-    1. STORE information if it is:
-    - User identity details (name, role, company, location, age range)
-    - Personal traits or qualities (experience level, communication style, goals)
-    - Likes, dislikes, habits, or interests (only if stated explicitly)
-    - Preferences or constraints (budget, timeline, product expectations)
-    - Buying or comparison intent (explicit or strongly implied)
-    - Repeated themes or opinions expressed by the user
-    - Explicit instructions to remember something
-
-    2. ALWAYS include user questions ONLY IF they are:
-    - About products, services, pricing, comparisons, or decisions
-    - Revealing intent, preferences, or evaluation criteria
-
-    Format:
-    "User asked: <exact question text>"
-
-    3. DO NOT store:
-    - Small talk with no signal
-    - One-off frustrations or transient issues
-    - Generic knowledge questions unrelated to the user
-    - Assistant responses
-
-
-    4. Rewrite extracted facts into short, declarative, future-usable memories.
-    - Use neutral tone
-    - Avoid time-specific language unless persistent
+    Rules:
+    - Include short declarative facts (e.g., "User loves pizza").
+    - **Always** include user questions/enquiries as facts in the format: "User asked: <question text>".
+    - Output only valid JSON.
 
     Examples:
-    Bad example:
-    "User said today they like React"
+    Input: "I love pizza." => {"facts":["User loves pizza"]}
+    Input: "How do I reset my password?" => {"facts":["User asked for instruction on resetting password?"]}
+    Input: "What is photosynthesis?" => {"facts":["User asked about photosynthesis?"]}
 
-    Good example:
-    "User likes working with React"
-
-    5. If multiple facts are closely related, merge them into one memory.
-
-    6. If no meaningful long-term information exists, return:
-    {"facts": []}
-
-    7. Output ONLY valid JSON. No explanations.
-
+    DO NOT store assistant responses.
     Conversation:
-
 """
 
 memory_config = MemoryConfig(
@@ -102,22 +44,8 @@ memory_config = MemoryConfig(
     vector_store={
         "provider": "chroma",
         "config": {
-            "collection_name": "mem0_hf_collection",
+            "collection_name": "mem0_collection",
             "path": ".chromadb"
-        }
-    },
-    # llm={
-    #     "provider": "openai",
-    #     "config": {
-    #         "model": "openai/gpt-3.5-turbo",  # Your preferred OpenRouter model
-    #         "api_key": getenv('OPENROUTER_API_KEY'),
-    #         "openrouter_base_url": "https://openrouter.ai/api/v1",
-    #     }
-    # },
-    embedder={
-        "provider": "huggingface",
-        "config": {
-            "model": "sentence-transformers/all-MiniLM-L6-v2"
         }
     },
     custom_fact_extraction_prompt=custom_fact_extraction_prompt
