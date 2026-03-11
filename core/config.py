@@ -136,6 +136,9 @@ SARVAM_SUPPORTED_LANGUAGES:set = {
 class BusinessContext:
     """Dynamic business context loaded from RAG on first query per businessId"""
     business_id: str = ""
+    company_name: str = ""
+    founder_name: str = ""
+    product_name: str = ""
     product_type: str = ""               # "beauty products", "electronics", "food delivery"
     product_summary: str = ""            # 2-3 sentence summary of what business sells
     target_audience: str = ""            # "women 18-35", "tech enthusiasts", "everyone"

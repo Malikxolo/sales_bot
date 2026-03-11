@@ -493,10 +493,10 @@ class SalesAgent:
             extract_prompt = f"""Extract business info from this text. Return ONLY valid JSON.
 
 TEXT:
-{rag_result['retrieved'][:2000]}
+{rag_result['retrieved']}
 
 Return JSON:
-{{"product_type": "what they sell (2-3 words)", "product_summary": "2-3 sentence summary", "target_audience": "who they sell to", "selling_points": ["point1", "point2", "point3"], "sales_style": "friendly/consultative/premium/casual", "brand_voice": "tone description in 3-5 words"}}"""
+{{"company_name": "company or business name", "founder_name": "name of founder if mentioned, else empty", "product_name": "name of the specific product(s)", "product_type": "what they sell (2-3 words)", "product_summary": "2-3 sentence summary", "target_audience": "who they sell to", "selling_points": ["point1", "point2", "point3"], "sales_style": "friendly/consultative/premium/casual", "brand_voice": "tone description in 3-5 words"}}"""
             
             response = await self.analysis_llm.generate(
                 [{"role": "user", "content": extract_prompt}],
@@ -509,6 +509,9 @@ Return JSON:
             ctx_data = json.loads(json_str)
             
             self._business_context = BusinessContext(
+                company_name=ctx_data.get("company_name", ""),
+                founder_name=ctx_data.get("founder_name", ""),
+                product_name=ctx_data.get("product_name", ""),
                 product_type=ctx_data.get("product_type", ""),
                 product_summary=ctx_data.get("product_summary", ""),
                 target_audience=ctx_data.get("target_audience", ""),
@@ -519,6 +522,10 @@ Return JSON:
             )
             
             logger.info(f"✅ Business context loaded successfully:")
+            logger.info(f"   Company: {self._business_context.company_name}")
+            if self._business_context.founder_name:
+                logger.info(f"   Founder: {self._business_context.founder_name}")
+            logger.info(f"   Product Name: {self._business_context.product_name}")
             logger.info(f"   Product: {self._business_context.product_type}")
             logger.info(f"   Audience: {self._business_context.target_audience}")
             logger.info(f"   Style: {self._business_context.sales_style}")
@@ -535,12 +542,18 @@ Return JSON:
             return "No specific product knowledge available yet. Be a generic friendly assistant."
         
         selling_pts = ", ".join(ctx.selling_points) if ctx.selling_points else "Not specified"
-        return f"""BUSINESS: {ctx.product_type}
-WHAT THEY SELL: {ctx.product_summary}
-TARGET AUDIENCE: {ctx.target_audience}
-KEY SELLING POINTS: {selling_pts}
-SALES STYLE: {ctx.sales_style}
-BRAND VOICE: {ctx.brand_voice}"""
+        prompt_parts = []
+        if ctx.company_name: prompt_parts.append(f"COMPANY NAME: {ctx.company_name}")
+        if ctx.founder_name: prompt_parts.append(f"FOUNDER NAME: {ctx.founder_name}")
+        if ctx.product_name: prompt_parts.append(f"PRODUCT NAME: {ctx.product_name}")
+        prompt_parts.append(f"BUSINESS: {ctx.product_type}")
+        prompt_parts.append(f"WHAT THEY SELL: {ctx.product_summary}")
+        prompt_parts.append(f"TARGET AUDIENCE: {ctx.target_audience}")
+        prompt_parts.append(f"KEY SELLING POINTS: {selling_pts}")
+        prompt_parts.append(f"SALES STYLE: {ctx.sales_style}")
+        prompt_parts.append(f"BRAND VOICE: {ctx.brand_voice}")
+        
+        return "\n".join(prompt_parts)
     
     # === User Profile Methods ===
     
@@ -1609,10 +1622,7 @@ Stay within {char_limit} characters. Use data provided."""
                             for c in chunks:
                                 if isinstance(c, dict):
                                     distance = c.get("distance", 0.0)
-                                    if distance is not None and distance > 0.65:
-                                        skipped_count += 1
-                                        logger.info(f"   Skipping low-relevance chunk (distance={distance:.4f})")
-                                        continue
+                                    # Removed distance-based filtering to ensure all data is given to LLM
                                 relevant_chunks.append(c)
 
                             # Build retrieved text from relevant chunks only

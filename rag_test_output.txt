@@ -1,0 +1,111 @@
+RETRIEVAL SUCCESSFUL
+
+Number of chunks retrieved: 5
+Distances: min=0.1138, max=0.3681, avg=0.2674
+
+============================================================
+RAW RETRIEVED TEXT:
+============================================================
+WHAT CLIENTS NEED TO PROVIDE
+- Active WhatsApp Business API account (or willingness to set one up — Vatsal can guide)
+- Business content: product list, pricing, FAQs, policies
+- Brand tone preferences
+- Target customer profile and typical sales objections you face
+
+---
+
+STAGE 3: AI CONFIGURATION
+The bot's personality and sales behaviour are configured for your brand.
+
+Configuration options:
+- Brand tone (formal, friendly, assertive, conversational)
+- Sales aggression level (soft nudge to strong close)
+- Upsell sensitivity (how aggressively the bot recommends higher-value products)
+- Discount strategy (whether and when the bot offers discounts)
+- Language preference (default language and fallback behaviour)
+- Escalation triggers (what situations get handed to a human)
+
+Included:
+- Everything in Pro, plus:
+- Multi-brand or multi-tenant deployment
+- Dedicated AI tuning for your specific market and audience
+- On-premise or private cloud deployment option
+- Custom SLA agreement
+- Revenue-linked pricing model available
+- Monthly strategy review with founder
+- Priority support (response within approximately 4 business hours)
+- Unlimited languages bundled in contract
+
+Contact: contact@foodnests.com or the WhatsApp channel at mochand.com
+
+---
+
+Q: Can I set the bot's tone and personality?
+A: Yes. During onboarding you configure the brand tone, sales aggression level, language style, and discount strategy. These can be adjusted at any time.
+
+---
+
+PRICING AND BILLING
+
+Q: What are the plans?
+A: Starter at ₹9,999/month, Growth at ₹24,999/month, Pro at ₹59,999/month, and Enterprise at custom pricing. Annual billing gives you 2 months free on all plans and waives the one-time onboarding fee. See the Pricing document for full details.
+
+- Intent detection: Understands what the buyer actually wants, even when they don't say it directly
+- Sentiment analysis: Reads emotional tone and adjusts the conversation approach accordingly
+- Objection handling: Responds to price objections, competitor comparisons, and hesitation with structured persuasion techniques
+- Upsell and cross-sell logic: Identifies the right moment to recommend higher-value products or add-ons
+============================================================
+
+--- CHUNK 1 ---
+Content: WHAT CLIENTS NEED TO PROVIDE
+- Active WhatsApp Business API account (or willingness to set one up — Vatsal can guide)
+- Business content: product list, pricing, FAQs, policies
+- Brand tone preferences
+- Target customer profile and typical sales objections you face
+
+---
+
+--- CHUNK 2 ---
+Content: STAGE 3: AI CONFIGURATION
+The bot's personality and sales behaviour are configured for your brand.
+
+Configuration options:
+- Brand tone (formal, friendly, assertive, conversational)
+- Sales aggression level (soft nudge to strong close)
+- Upsell sensitivity (how aggressively the bot recommends higher-value products)
+- Discount strategy (whether and when the bot offers discounts)
+- Language preference (default language and fallback behaviour)
+- Escalation triggers (what situations get handed to a human)
+
+--- CHUNK 3 ---
+Content: Included:
+- Everything in Pro, plus:
+- Multi-brand or multi-tenant deployment
+- Dedicated AI tuning for your specific market and audience
+- On-premise or private cloud deployment option
+- Custom SLA agreement
+- Revenue-linked pricing model available
+- Monthly strategy review with founder
+- Priority support (response within approximately 4 business hours)
+- Unlimited languages bundled in contract
+
+Contact: contact@foodnests.com or the WhatsApp channel at mochand.com
+
+---
+
+--- CHUNK 4 ---
+Content: Q: Can I set the bot's tone and personality?
+A: Yes. During onboarding you configure the brand tone, sales aggression level, language style, and discount strategy. These can be adjusted at any time.
+
+---
+
+PRICING AND BILLING
+
+Q: What are the plans?
+A: Starter at ₹9,999/month, Growth at ₹24,999/month, Pro at ₹59,999/month, and Enterprise at custom pricing. Annual billing gives you 2 months free on all plans and waives the one-time onboarding fee. See the Pricing document for full details.
+
+--- CHUNK 5 ---
+Content: - Intent detection: Understands what the buyer actually wants, even when they don't say it directly
+- Sentiment analysis: Reads emotional tone and adjusts the conversation approach accordingly
+- Objection handling: Responds to price objections, competitor comparisons, and hesitation with structured persuasion techniques
+- Upsell and cross-sell logic: Identifies the right moment to recommend higher-value products or add-ons
