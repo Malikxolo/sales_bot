@@ -85,7 +85,7 @@ async def mog_query(user_id: str, chat_history:List, query: str, source: str = "
         "Content-Type": "application/json"
     }
     payload = {
-        "userid": user_id,
+        "userId": user_id,
         "chat_history": chat_history,
         "user_query": query,
         "source": source,

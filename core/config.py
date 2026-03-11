@@ -33,61 +33,55 @@ logger = logging.getLogger(__name__)
 # """
 
 custom_fact_extraction_prompt = """
-    You are a memory extractor for a conversational SALES ASSISTANT.
+You are a memory extractor for a SALES ASSISTANT having real conversations.
 
-    From the conversation below, return a JSON object with a single key "facts".
-    The value must be a list of concise, long-term memory statements.
+From the conversation below, extract facts that help the assistant:
+- Personalize future conversations
+- Identify sales opportunities
+- Build genuine relationships
 
-    Your goal is to extract information that helps the assistant:
-    - converse naturally in the future
-    - personalize responses
-    - understand buying intent and preferences
+EXTRACT these categories (if mentioned):
 
-    STRICT RULES:
+IDENTITY:
+- Name, nickname, preferred name
+- Age range, gender (if obvious from context)
+- Location, city, country
 
-    1. STORE information if it is:
-    - User identity details (name, role, company, location, age range)
-    - Personal traits or qualities (experience level, communication style, goals)
-    - Likes, dislikes, habits, or interests (only if stated explicitly)
-    - Preferences or constraints (budget, timeline, product expectations)
-    - Buying or comparison intent (explicit or strongly implied)
-    - Repeated themes or opinions expressed by the user
-    - Explicit instructions to remember something
+LIFE SITUATION:
+- Occupation, job title, company, industry
+- Relationships: married, girlfriend/boyfriend, single, has kids, family members mentioned
+- Important dates: birthdays, anniversaries, upcoming events
+- Hobbies, interests, passions
 
-    2. ALWAYS include user questions ONLY IF they are:
-    - About products, services, pricing, comparisons, or decisions
-    - Revealing intent, preferences, or evaluation criteria
+BUYING SIGNALS:
+- Products/services they showed interest in
+- Price sensitivity (budget mentions, "too expensive", "good deal")
+- Purchase timeline ("need it by next week", "just browsing")
+- Who they're buying for (self, partner, family, friend)
+- Past purchases or brand preferences mentioned
+- Objections raised ("I don't think I need...", "not sure about...")
 
-    Format:
-    "User asked: <exact question text>"
+COMMUNICATION STYLE:
+- Formal vs casual
+- Language preference (if they switched languages)
+- Emoji usage, humor style
 
-    3. DO NOT store:
-    - Small talk with no signal
-    - One-off frustrations or transient issues
-    - Generic knowledge questions unrelated to the user
-    - Assistant responses
+RULES:
+1. Write facts as short, declarative, future-useful statements
+2. Use neutral tone, no time-specific language
+3. Merge closely related facts into one memory
+4. DO NOT store: assistant responses, small talk with zero signal, generic questions
+5. If no meaningful facts exist, return: {"facts": []}
+6. Output ONLY valid JSON.
 
+Examples:
+- "User's name is Rahul, works in IT"
+- "User has a girlfriend, anniversary in March"
+- "User showed interest in skincare products for girlfriend"
+- "User is price-sensitive, mentioned budget of 2000 INR"
+- "User prefers casual Hindi-English conversation"
 
-    4. Rewrite extracted facts into short, declarative, future-usable memories.
-    - Use neutral tone
-    - Avoid time-specific language unless persistent
-
-    Examples:
-    Bad example:
-    "User said today they like React"
-
-    Good example:
-    "User likes working with React"
-
-    5. If multiple facts are closely related, merge them into one memory.
-
-    6. If no meaningful long-term information exists, return:
-    {"facts": []}
-
-    7. Output ONLY valid JSON. No explanations.
-
-    Conversation:
-
+Conversation:
 """
 
 memory_config = MemoryConfig(
@@ -136,6 +130,23 @@ SARVAM_SUPPORTED_LANGUAGES:set = {
     "Tamil",
     "Telugu"
 }
+
+
+@dataclass
+class BusinessContext:
+    """Dynamic business context loaded from RAG on first query per businessId"""
+    business_id: str = ""
+    product_type: str = ""               # "beauty products", "electronics", "food delivery"
+    product_summary: str = ""            # 2-3 sentence summary of what business sells
+    target_audience: str = ""            # "women 18-35", "tech enthusiasts", "everyone"
+    selling_points: list = None          # ["organic ingredients", "free shipping"]
+    sales_style: str = "friendly"        # "consultative", "friendly", "premium", "casual"
+    brand_voice: str = ""               # "warm and playful", "professional", "luxurious"
+    loaded: bool = False                 # Whether context was successfully loaded from RAG
+
+    def __post_init__(self):
+        if self.selling_points is None:
+            self.selling_points = []
 
 
 @dataclass

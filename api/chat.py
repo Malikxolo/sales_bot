@@ -221,6 +221,25 @@ async def lifespan(app: FastAPI):
     )
     logging.info("SalesAgent background worker started")
 
+    # Load business context once at startup — CHATBOT_API_KEY in .env scopes the data
+    # Retry up to 3 times in case RAG is still warming up
+    for attempt in range(1, 4):
+        try:
+            await agent._load_business_context()
+            if agent._business_context and agent._business_context.loaded:
+                logging.info(f"✅ Business context ready: {agent._business_context.product_type}")
+                break
+            else:
+                logging.warning(f"⚠️ Business context not loaded (attempt {attempt}/3) — RAG may be empty")
+                if attempt < 3:
+                    await asyncio.sleep(3)
+        except Exception as e:
+            logging.warning(f"⚠️ Business context load attempt {attempt}/3 failed: {e}")
+            if attempt < 3:
+                await asyncio.sleep(3)
+    else:
+        logging.warning("⚠️ Business context unavailable after 3 attempts — running in generic assistant mode")
+
     try:
         yield
     finally:
@@ -251,7 +270,8 @@ class UserQuery(BaseModel):
     messages: List[QueryMessage]
 
 class ChatMessage(BaseModel):
-    userid: str
+    userId: str               # phone number from WhatsApp connector
+    chatbotId: Optional[str] = None  # sent by WA connector (its CHATBOT_ID env var)
     chat_history: list[dict] = []
     user_query: str
     mode: Optional[str] = None
@@ -304,18 +324,16 @@ async def set_brain_heart_agents(request: UpdateAgentsRequest):
 
 
 @router.post("/chat", dependencies=[Depends(RateLimiter(times=6, seconds=60))])
+@router.post("/llm/chat", dependencies=[Depends(RateLimiter(times=6, seconds=60))])
 async def chat_brain_heart_system(request: ChatMessage = Body(...)):
     """Chat endpoint - uses SalesAgent"""
     
     try:
-        user_id = request.userid
+        user_id = request.userId
         user_query = request.user_query
-        chat_history = request.chat_history if hasattr(request, 'chat_history') and request.chat_history else []
-        mode = request.mode if hasattr(request, 'mode') else None
-        source = request.source if hasattr(request, 'source') else 'whatsapp'
+        chat_history = request.chat_history if request.chat_history else []
         
         safe_log_user_data(user_id, 'brain_heart_chat', message_count=len(user_query))
-        
         
         result = await agent.process_query(user_query, chat_history, user_id)
         

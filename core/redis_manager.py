@@ -207,3 +207,69 @@ class RedisCacheManager:
         except Exception as e:
             logger.error(f"❌ Redis stats error: {e}")
             return {"enabled": False, "error": str(e)}
+    
+    # === Business Context Cache ===
+    
+    async def get_business_context(self, business_id: str) -> Optional[dict]:
+        """Get cached business context"""
+        if not self.enabled or not self.redis_client:
+            return None
+        try:
+            cache_key = f"business_context:{business_id}"
+            cached_data = await self.redis_client.get(cache_key)
+            if cached_data:
+                logger.info(f"🎯 Cache HIT for business context: {business_id}")
+                return json.loads(cached_data)
+            logger.info(f"❌ Cache MISS for business context: {business_id}")
+            return None
+        except Exception as e:
+            logger.error(f"❌ Redis get error for business context: {e}")
+            return None
+    
+    async def cache_business_context(self, business_id: str, context: dict, ttl: int = 86400):
+        """Cache business context for 24 hours"""
+        if not self.enabled or not self.redis_client:
+            return
+        try:
+            cache_key = f"business_context:{business_id}"
+            await self.redis_client.setex(
+                cache_key,
+                ttl,
+                json.dumps(context, ensure_ascii=False)
+            )
+            logger.info(f"💾 Cached business context: {business_id} (TTL: {ttl}s)")
+        except Exception as e:
+            logger.error(f"❌ Redis set error for business context: {e}")
+    
+    # === Conversation Summary Cache ===
+    
+    async def get_conversation_summary(self, user_id: str) -> Optional[dict]:
+        """Get cached conversation summary"""
+        if not self.enabled or not self.redis_client:
+            return None
+        try:
+            cache_key = f"conversation_summary:{user_id}"
+            cached_data = await self.redis_client.get(cache_key)
+            if cached_data:
+                logger.info(f"🎯 Cache HIT for conversation summary: {user_id}")
+                return json.loads(cached_data)
+            logger.info(f"❌ Cache MISS for conversation summary: {user_id}")
+            return None
+        except Exception as e:
+            logger.error(f"❌ Redis get error for conversation summary: {e}")
+            return None
+    
+    async def cache_conversation_summary(self, user_id: str, summary: dict, ttl: int = 86400):
+        """Cache conversation summary for 24 hours"""
+        if not self.enabled or not self.redis_client:
+            return
+        try:
+            cache_key = f"conversation_summary:{user_id}"
+            await self.redis_client.setex(
+                cache_key,
+                ttl,
+                json.dumps(summary, ensure_ascii=False)
+            )
+            logger.info(f"💾 Cached conversation summary: {user_id} (TTL: {ttl}s)")
+        except Exception as e:
+            logger.error(f"❌ Redis set error for conversation summary: {e}")
