@@ -467,42 +467,63 @@ class SalesAgent:
     # === Business Context Methods ===
     
     async def _load_business_context(self):
-        """Load business context from RAG once at startup. CHATBOT_API_KEY scopes the data server-side."""
+        """Load business context from RAG once at startup using 3 targeted queries."""
         if self._business_context and self._business_context.loaded:
             logger.info(f"🏢 Business context already loaded: {self._business_context.product_type}")
             return
         
         try:
-            logger.info(f"🏢 Loading business context from RAG...")
+            logger.info(f"🏢 Loading business context from RAG (3-query strategy)...")
             rag_tool = self.tool_manager.get_tool("rag")
             if not rag_tool:
                 logger.warning("⚠️ RAG tool not available — running in generic assistant mode")
                 self._business_context = BusinessContext(loaded=False)
                 return
             
-            rag_result = await rag_tool.execute(
-                query="What does this business sell? Products, target audience, selling points, brand personality, pricing."
-            )
+            # 3 targeted queries — fully generic, works for any business/product
+            targeted_queries = [
+                "What is this company called? Who is the founder? What is the product name?",
+                "What does this business sell? What is the main product or service and its key features?",
+                "Who are the target customers? What are the key selling points, pricing plans, and brand tone?",
+            ]
             
-            if not rag_result.get("success") or not rag_result.get("retrieved"):
-                logger.warning("🏢 RAG returned nothing — running in generic assistant mode")
+            seen_chunks: set = set()
+            combined_chunks: list = []
+            
+            for q in targeted_queries:
+                r = await rag_tool.execute(query=q)
+                if r.get("success"):
+                    for chunk_text in r.get("retrieved", "").split("\n\n"):
+                        chunk_text = chunk_text.strip()
+                        if chunk_text and chunk_text not in seen_chunks:
+                            seen_chunks.add(chunk_text)
+                            combined_chunks.append(chunk_text)
+                    logger.info(f"   ✅ Query '{q[:50]}...' → {len(r.get('retrieved','').split(chr(10)+chr(10)))} chunks")
+                else:
+                    logger.warning(f"   ⚠️ Query failed: {r.get('error')}")
+            
+            if not combined_chunks:
+                logger.warning("🏢 All RAG queries returned nothing — running in generic assistant mode")
                 self._business_context = BusinessContext(loaded=False)
                 return
             
-            # Use analysis LLM to extract structured fields from the raw RAG text
+            combined_text = "\n\n".join(combined_chunks)
+            logger.info(f"🏢 Combined unique chunks: {len(combined_chunks)} | Total chars: {len(combined_text)}")
+            
+            # Use analysis LLM to extract structured fields from the combined RAG text
             extract_prompt = f"""Extract business info from this text. Return ONLY valid JSON.
 
 TEXT:
-{rag_result['retrieved']}
+{combined_text}
 
 Return JSON:
-{{"company_name": "company or business name", "founder_name": "name of founder if mentioned, else empty", "product_name": "name of the specific product(s)", "product_type": "what they sell (2-3 words)", "product_summary": "2-3 sentence summary", "target_audience": "who they sell to", "selling_points": ["point1", "point2", "point3"], "sales_style": "friendly/consultative/premium/casual", "brand_voice": "tone description in 3-5 words"}}"""
+{{"company_name": "company or business name", "founder_name": "name of founder if mentioned, else empty string", "product_name": "exact name of the product (e.g. sales bot, Mochan-D, etc.)", "product_type": "what they sell in 2-3 words", "product_summary": "2-3 sentence summary of what the product does", "target_audience": "who they sell to", "selling_points": ["point1", "point2", "point3"], "pricing_summary": "brief summary of plans and prices, e.g. Starter ₹9,999/mo, Growth ₹24,999/mo — empty string if no pricing found", "competitive_edge": "key differentiators vs competitors in 1-2 sentences — empty string if not mentioned", "sales_style": "friendly/consultative/premium/casual", "brand_voice": "tone description in 3-5 words"}}"""
             
             response = await self.analysis_llm.generate(
                 [{"role": "user", "content": extract_prompt}],
                 temperature=0.1,
-                max_tokens=300,
-                system_prompt="Extract business information. Return valid JSON only."
+                max_tokens=500,
+                system_prompt="Extract business information from the provided text. Return valid JSON only. Do not add explanation."
             )
             
             json_str = self._extract_json(response)
@@ -516,6 +537,8 @@ Return JSON:
                 product_summary=ctx_data.get("product_summary", ""),
                 target_audience=ctx_data.get("target_audience", ""),
                 selling_points=ctx_data.get("selling_points", []),
+                pricing_summary=ctx_data.get("pricing_summary", ""),
+                competitive_edge=ctx_data.get("competitive_edge", ""),
                 sales_style=ctx_data.get("sales_style", "friendly"),
                 brand_voice=ctx_data.get("brand_voice", ""),
                 loaded=True
@@ -534,6 +557,7 @@ Return JSON:
         except Exception as e:
             logger.error(f"❌ Business context loading failed: {e}")
             self._business_context = BusinessContext(loaded=False)
+
     
     def _business_context_prompt(self) -> str:
         """Format BusinessContext into prompt text"""
@@ -544,12 +568,14 @@ Return JSON:
         selling_pts = ", ".join(ctx.selling_points) if ctx.selling_points else "Not specified"
         prompt_parts = []
         if ctx.company_name: prompt_parts.append(f"COMPANY NAME: {ctx.company_name}")
-        if ctx.founder_name: prompt_parts.append(f"FOUNDER NAME: {ctx.founder_name}")
+        if ctx.founder_name: prompt_parts.append(f"FOUNDER: {ctx.founder_name}")
         if ctx.product_name: prompt_parts.append(f"PRODUCT NAME: {ctx.product_name}")
-        prompt_parts.append(f"BUSINESS: {ctx.product_type}")
+        prompt_parts.append(f"PRODUCT TYPE: {ctx.product_type}")
         prompt_parts.append(f"WHAT THEY SELL: {ctx.product_summary}")
         prompt_parts.append(f"TARGET AUDIENCE: {ctx.target_audience}")
         prompt_parts.append(f"KEY SELLING POINTS: {selling_pts}")
+        if ctx.pricing_summary: prompt_parts.append(f"PRICING: {ctx.pricing_summary}")
+        if ctx.competitive_edge: prompt_parts.append(f"COMPETITIVE EDGE: {ctx.competitive_edge}")
         prompt_parts.append(f"SALES STYLE: {ctx.sales_style}")
         prompt_parts.append(f"BRAND VOICE: {ctx.brand_voice}")
         

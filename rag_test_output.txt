@@ -1,11 +1,45 @@
-RETRIEVAL SUCCESSFUL
+hybrid=False  threshold=0.7  top_k=5
 
-Number of chunks retrieved: 5
-Distances: min=0.1138, max=0.3681, avg=0.2674
 
 ============================================================
-RAW RETRIEVED TEXT:
+QUERY 1: What is this company called? Who is the founder? What is the product name?
 ============================================================
+Chunks returned : 1
+Distances       : min=0.2896  max=0.2896  avg=0.2896
+
+[CHUNK 1]  score=0.7104  distance=0.2896
+COMPANY
+Company: FoodNEST(S)
+Product: Mochan-D
+CEO and Founder: Vatsal Asthana
+Founded: 2021
+Headquarters: Lucknow, India
+Website: mochand.com
+Contact: contact@foodnests.com | WhatsApp channel at mochand.com
+
+============================================================
+QUERY 2: What does this business sell? What is the main product or service and its key features?
+============================================================
+Chunks returned : 0
+
+============================================================
+QUERY 3: Who are the target customers? What are the key selling points, pricing plans, and brand tone?
+============================================================
+Chunks returned : 5
+Distances       : min=0.2441  max=0.2796  avg=0.2665
+
+[CHUNK 1]  score=0.7559  distance=0.2441
+Q: Can I set the bot's tone and personality?
+A: Yes. During onboarding you configure the brand tone, sales aggression level, language style, and discount strategy. These can be adjusted at any time.
+
+---
+
+PRICING AND BILLING
+
+Q: What are the plans?
+A: Starter at ₹9,999/month, Growth at ₹24,999/month, Pro at ₹59,999/month, and Enterprise at custom pricing. Annual billing gives you 2 months free on all plans and waives the one-time onboarding fee. See the Pricing document for full details.
+
+[CHUNK 2]  score=0.7484  distance=0.2516
 WHAT CLIENTS NEED TO PROVIDE
 - Active WhatsApp Business API account (or willingness to set one up — Vatsal can guide)
 - Business content: product list, pricing, FAQs, policies
@@ -14,31 +48,46 @@ WHAT CLIENTS NEED TO PROVIDE
 
 ---
 
-STAGE 3: AI CONFIGURATION
-The bot's personality and sales behaviour are configured for your brand.
-
-Configuration options:
-- Brand tone (formal, friendly, assertive, conversational)
-- Sales aggression level (soft nudge to strong close)
-- Upsell sensitivity (how aggressively the bot recommends higher-value products)
-- Discount strategy (whether and when the bot offers discounts)
-- Language preference (default language and fallback behaviour)
-- Escalation triggers (what situations get handed to a human)
-
-Included:
-- Everything in Pro, plus:
-- Multi-brand or multi-tenant deployment
-- Dedicated AI tuning for your specific market and audience
-- On-premise or private cloud deployment option
-- Custom SLA agreement
-- Revenue-linked pricing model available
-- Monthly strategy review with founder
-- Priority support (response within approximately 4 business hours)
-- Unlimited languages bundled in contract
-
-Contact: contact@foodnests.com or the WhatsApp channel at mochand.com
+[CHUNK 3]  score=0.7218  distance=0.2782
+Mochan-D's approach:
+Step 1 — Welcome the comparison: Do not dismiss the competitor.
+Step 2 — Highlight the specific differentiators of Mochan-D: WhatsApp-first, Indian market focus, founder-direct support, persuasion psychology built in.
+Step 3 — Ask what matters most to them in making their decision.
+Step 4 — Map Mochan-D's strengths directly to what they said matters.
+Step 5 — Offer the free trial: "Test us against them. 7 days, no commitment."
 
 ---
+
+[CHUNK 4]  score=0.7212  distance=0.2788
+COMPETITIVE EDGE SUMMARY
+- WhatsApp-first architecture built for Indian communication patterns
+- Persistent memory across conversations
+- Revenue and conversion focus, not just query resolution
+- Persuasion psychology applied systematically
+- Founder-designed for the Indian B2B market
+- Scales sales capacity without scaling headcount
+
+[CHUNK 5]  score=0.7204  distance=0.2796
+Mochan-D's approach:
+Step 1 — Warm opening: Greet naturally, acknowledge their message.
+Step 2 — Qualify quickly: What kind of business do they run? What is their current sales challenge?
+Step 3 — Classify: Based on their responses, categorise as Hot, Warm, Cold, Price-Sensitive, or Comparison Shopper.
+Step 4 — Tailor the pitch: A Hot lead gets a direct offer. A Cold lead gets education and nurturing.
+Step 5 — Move toward a next step: Trial, demo, or pricing discussion.
+
+---
+
+============================================================
+MERGED UNIQUE CHUNKS (6 total)
+============================================================
+COMPANY
+Company: FoodNEST(S)
+Product: Mochan-D
+CEO and Founder: Vatsal Asthana
+Founded: 2021
+Headquarters: Lucknow, India
+Website: mochand.com
+Contact: contact@foodnests.com | WhatsApp channel at mochand.com
 
 Q: Can I set the bot's tone and personality?
 A: Yes. During onboarding you configure the brand tone, sales aggression level, language style, and discount strategy. These can be adjusted at any time.
@@ -50,14 +99,7 @@ PRICING AND BILLING
 Q: What are the plans?
 A: Starter at ₹9,999/month, Growth at ₹24,999/month, Pro at ₹59,999/month, and Enterprise at custom pricing. Annual billing gives you 2 months free on all plans and waives the one-time onboarding fee. See the Pricing document for full details.
 
-- Intent detection: Understands what the buyer actually wants, even when they don't say it directly
-- Sentiment analysis: Reads emotional tone and adjusts the conversation approach accordingly
-- Objection handling: Responds to price objections, competitor comparisons, and hesitation with structured persuasion techniques
-- Upsell and cross-sell logic: Identifies the right moment to recommend higher-value products or add-ons
-============================================================
-
---- CHUNK 1 ---
-Content: WHAT CLIENTS NEED TO PROVIDE
+WHAT CLIENTS NEED TO PROVIDE
 - Active WhatsApp Business API account (or willingness to set one up — Vatsal can guide)
 - Business content: product list, pricing, FAQs, policies
 - Brand tone preferences
@@ -65,47 +107,28 @@ Content: WHAT CLIENTS NEED TO PROVIDE
 
 ---
 
---- CHUNK 2 ---
-Content: STAGE 3: AI CONFIGURATION
-The bot's personality and sales behaviour are configured for your brand.
-
-Configuration options:
-- Brand tone (formal, friendly, assertive, conversational)
-- Sales aggression level (soft nudge to strong close)
-- Upsell sensitivity (how aggressively the bot recommends higher-value products)
-- Discount strategy (whether and when the bot offers discounts)
-- Language preference (default language and fallback behaviour)
-- Escalation triggers (what situations get handed to a human)
-
---- CHUNK 3 ---
-Content: Included:
-- Everything in Pro, plus:
-- Multi-brand or multi-tenant deployment
-- Dedicated AI tuning for your specific market and audience
-- On-premise or private cloud deployment option
-- Custom SLA agreement
-- Revenue-linked pricing model available
-- Monthly strategy review with founder
-- Priority support (response within approximately 4 business hours)
-- Unlimited languages bundled in contract
-
-Contact: contact@foodnests.com or the WhatsApp channel at mochand.com
+Mochan-D's approach:
+Step 1 — Welcome the comparison: Do not dismiss the competitor.
+Step 2 — Highlight the specific differentiators of Mochan-D: WhatsApp-first, Indian market focus, founder-direct support, persuasion psychology built in.
+Step 3 — Ask what matters most to them in making their decision.
+Step 4 — Map Mochan-D's strengths directly to what they said matters.
+Step 5 — Offer the free trial: "Test us against them. 7 days, no commitment."
 
 ---
 
---- CHUNK 4 ---
-Content: Q: Can I set the bot's tone and personality?
-A: Yes. During onboarding you configure the brand tone, sales aggression level, language style, and discount strategy. These can be adjusted at any time.
+COMPETITIVE EDGE SUMMARY
+- WhatsApp-first architecture built for Indian communication patterns
+- Persistent memory across conversations
+- Revenue and conversion focus, not just query resolution
+- Persuasion psychology applied systematically
+- Founder-designed for the Indian B2B market
+- Scales sales capacity without scaling headcount
+
+Mochan-D's approach:
+Step 1 — Warm opening: Greet naturally, acknowledge their message.
+Step 2 — Qualify quickly: What kind of business do they run? What is their current sales challenge?
+Step 3 — Classify: Based on their responses, categorise as Hot, Warm, Cold, Price-Sensitive, or Comparison Shopper.
+Step 4 — Tailor the pitch: A Hot lead gets a direct offer. A Cold lead gets education and nurturing.
+Step 5 — Move toward a next step: Trial, demo, or pricing discussion.
 
 ---
-
-PRICING AND BILLING
-
-Q: What are the plans?
-A: Starter at ₹9,999/month, Growth at ₹24,999/month, Pro at ₹59,999/month, and Enterprise at custom pricing. Annual billing gives you 2 months free on all plans and waives the one-time onboarding fee. See the Pricing document for full details.
-
---- CHUNK 5 ---
-Content: - Intent detection: Understands what the buyer actually wants, even when they don't say it directly
-- Sentiment analysis: Reads emotional tone and adjusts the conversation approach accordingly
-- Objection handling: Responds to price objections, competitor comparisons, and hesitation with structured persuasion techniques
-- Upsell and cross-sell logic: Identifies the right moment to recommend higher-value products or add-ons

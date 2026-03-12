@@ -868,7 +868,12 @@ class RAGTool(BaseTool):
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 None,
-                lambda: self._weaviate.query(query, top_k=5)
+                lambda: self._weaviate.query(
+                    query,
+                    top_k=5,
+                    use_hybrid=False,
+                    similarity_threshold=0.7,
+                )
             )
 
             if result["success"]:

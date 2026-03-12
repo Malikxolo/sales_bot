@@ -1,4 +1,3 @@
-import asyncio
 import sys
 import os
 
@@ -9,53 +8,99 @@ if sys.platform == 'win32':
 # Ensure the root directory is in the Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from core.tools import RAGTool
+from core.weaviate_rag import get_weaviate_rag_client
 
-async def main():
-    print("Initializing RAGTool...")
-    rag = RAGTool()
-    
-    query = "What does this business sell? Products, target audience, selling points, brand personality, pricing."
-    print(f"\nQuerying RAG with: '{query}'\n")
-    print("="*60)
-    
-    try:
-        result = await rag.execute(query=query, user_id="test_user")
-        
-        with open("rag_test_output.txt", "w", encoding="utf-8") as f:
-            if result.get("success"):
-                f.write("RETRIEVAL SUCCESSFUL\n\n")
-                f.write(f"Number of chunks retrieved: {result.get('chunks_count', 0)}\n")
-                
-                distances = result.get('distances', [])
-                if distances:
-                    f.write(f"Distances: min={min(distances):.4f}, max={max(distances):.4f}, avg={sum(distances)/len(distances):.4f}\n")
-                
-                f.write("\n" + "="*60 + "\n")
-                f.write("RAW RETRIEVED TEXT:\n")
-                f.write("="*60 + "\n")
-                f.write(result.get("retrieved", "No content retrieved") + "\n")
-                f.write("="*60 + "\n")
-                
-                # Print individual chunks
-                chunks = result.get("chunks", [])
-                for i, chunk in enumerate(chunks):
-                    f.write(f"\n--- CHUNK {i+1} ---\n")
-                    if isinstance(chunk, dict):
-                        doc = chunk.get("document", "No document")
-                        meta = chunk.get("metadata", {})
-                        f.write(f"Content: {doc}\n")
-                        if meta:
-                            f.write(f"Metadata: {meta}\n")
-            else:
-                f.write(f"RETRIEVAL FAILED: {result.get('error')}\n")
-            
-    except Exception as e:
-        with open("rag_test_output.txt", "w", encoding="utf-8") as f:
-            f.write(f"ERROR DURING EXECUTION: {e}\n")
+# ── Same 3 queries used in _load_business_context ──────────────────────────
+QUERIES = [
+    "What is this company called? Who is the founder? What is the product name?",
+    "What does this business sell? What is the main product or service and its key features?",
+    "Who are the target customers? What are the key selling points, pricing plans, and brand tone?",
+]
+
+# ── Same params now used in production (tools.py) ──────────────────────────
+USE_HYBRID = False
+SIMILARITY_THRESHOLD = 0.7
+TOP_K = 5
+
+
+def run_query(client, label: str, query: str):
+    """Run one query and return (label, chunks list, output string)."""
+    sep = "=" * 60
+    print(f"\n{sep}")
+    print(f"QUERY {label}: {query}")
+    print(f"  hybrid={USE_HYBRID}  threshold={SIMILARITY_THRESHOLD}  top_k={TOP_K}")
+    print(sep)
+
+    result = client.query(
+        query_text=query,
+        top_k=TOP_K,
+        use_hybrid=USE_HYBRID,
+        similarity_threshold=SIMILARITY_THRESHOLD,
+    )
+
+    lines = []
+    chunks_text = []
+    if result.get("success"):
+        chunks = result.get("results", [])
+        distances = result.get("distances", [])
+        lines.append(f"Chunks returned : {len(chunks)}")
+        if distances:
+            lines.append(
+                f"Distances       : min={min(distances):.4f}  "
+                f"max={max(distances):.4f}  "
+                f"avg={sum(distances)/len(distances):.4f}"
+            )
+        for i, chunk in enumerate(chunks):
+            doc   = chunk.get("document", "")
+            score = chunk.get("score", 0)
+            dist  = round(1 - score, 4)
+            lines.append(f"\n[CHUNK {i+1}]  score={score:.4f}  distance={dist:.4f}")
+            lines.append(doc)
+            chunks_text.append(doc.strip())
+    else:
+        lines.append(f"FAILED: {result.get('error')}")
+
+    output = "\n".join(lines)
+    print(output)
+    return label, chunks_text, output
+
+
+def main():
+    client = get_weaviate_rag_client()
+    print(f"\n{'#'*60}")
+    print(f"# RAG 3-QUERY BUSINESS CONTEXT TEST")
+    print(f"# hybrid={USE_HYBRID}  threshold={SIMILARITY_THRESHOLD}  top_k={TOP_K}")
+    print(f"{'#'*60}")
+
+    all_results = []
+    seen: set = set()
+    merged_chunks: list = []
+
+    for i, query in enumerate(QUERIES, 1):
+        label, chunk_texts, output = run_query(client, str(i), query)
+        all_results.append((label, query, output))
+        for ct in chunk_texts:
+            if ct and ct not in seen:
+                seen.add(ct)
+                merged_chunks.append(ct)
+
+    # Print the merged deduplicated text (what the LLM will actually see)
+    print(f"\n{'='*60}")
+    print(f"MERGED UNIQUE CHUNKS ({len(merged_chunks)} total) — what LLM sees:")
+    print(f"{'='*60}")
+    merged_text = "\n\n".join(merged_chunks)
+    print(merged_text)
+
+    # Save to file
+    with open("rag_test_output.txt", "w", encoding="utf-8") as f:
+        f.write(f"hybrid={USE_HYBRID}  threshold={SIMILARITY_THRESHOLD}  top_k={TOP_K}\n\n")
+        for label, query, output in all_results:
+            f.write(f"\n{'='*60}\nQUERY {label}: {query}\n{'='*60}\n{output}\n")
+        f.write(f"\n{'='*60}\nMERGED UNIQUE CHUNKS ({len(merged_chunks)} total)\n{'='*60}\n")
+        f.write(merged_text + "\n")
+
+    print(f"\n\n✅ Full output saved to rag_test_output.txt")
+
 
 if __name__ == "__main__":
-    # Workaround for Windows asyncio loop
-    if sys.platform == 'win32':
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    asyncio.run(main())
+    main()

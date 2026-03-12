@@ -143,6 +143,8 @@ class BusinessContext:
     product_summary: str = ""            # 2-3 sentence summary of what business sells
     target_audience: str = ""            # "women 18-35", "tech enthusiasts", "everyone"
     selling_points: list = None          # ["organic ingredients", "free shipping"]
+    pricing_summary: str = ""            # "Starter ₹9,999/mo, Growth ₹24,999/mo, Pro ₹59,999/mo"
+    competitive_edge: str = ""           # "WhatsApp-first, founder support, persuasion psychology"
     sales_style: str = "friendly"        # "consultative", "friendly", "premium", "casual"
     brand_voice: str = ""               # "warm and playful", "professional", "luxurious"
     loaded: bool = False                 # Whether context was successfully loaded from RAG
@@ -150,6 +152,7 @@ class BusinessContext:
     def __post_init__(self):
         if self.selling_points is None:
             self.selling_points = []
+
 
 
 @dataclass
