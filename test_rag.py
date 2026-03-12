@@ -13,13 +13,13 @@ from core.weaviate_rag import get_weaviate_rag_client
 # ── Same 3 queries used in _load_business_context ──────────────────────────
 QUERIES = [
     "What is this company called? Who is the founder? What is the product name?",
-    "What does this business sell? What is the main product or service and its key features?",
+    "What can this product or service do? What capabilities, features, and problems does it solve for customers?",
     "Who are the target customers? What are the key selling points, pricing plans, and brand tone?",
 ]
 
 # ── Same params now used in production (tools.py) ──────────────────────────
 USE_HYBRID = False
-SIMILARITY_THRESHOLD = 0.7
+SIMILARITY_THRESHOLD = 0.6
 TOP_K = 5
 
 

@@ -1,11 +1,11 @@
-hybrid=False  threshold=0.7  top_k=5
+hybrid=False  threshold=0.6  top_k=5
 
 
 ============================================================
 QUERY 1: What is this company called? Who is the founder? What is the product name?
 ============================================================
-Chunks returned : 1
-Distances       : min=0.2896  max=0.2896  avg=0.2896
+Chunks returned : 5
+Distances       : min=0.2896  max=0.3345  avg=0.3200
 
 [CHUNK 1]  score=0.7104  distance=0.2896
 COMPANY
@@ -17,10 +17,88 @@ Headquarters: Lucknow, India
 Website: mochand.com
 Contact: contact@foodnests.com | WhatsApp channel at mochand.com
 
+[CHUNK 2]  score=0.6819  distance=0.3181
+DOCUMENT: Founder Philosophy — Mochan-D
+SOURCE: foodnests.com / mochand.com
+
+THE PHILOSOPHY
+Mochan-D was built on one belief: every conversation a business has with a potential customer is an asset.
+
+[CHUNK 3]  score=0.6739  distance=0.3261
+Mochan-D's approach:
+Step 1 — Welcome the comparison: Do not dismiss the competitor.
+Step 2 — Highlight the specific differentiators of Mochan-D: WhatsApp-first, Indian market focus, founder-direct support, persuasion psychology built in.
+Step 3 — Ask what matters most to them in making their decision.
+Step 4 — Map Mochan-D's strengths directly to what they said matters.
+Step 5 — Offer the free trial: "Test us against them. 7 days, no commitment."
+
+---
+
+[CHUNK 4]  score=0.6681  distance=0.3319
+ON BEING A BOOTSTRAPPED PRODUCT
+Mochan-D is built by a solo founder without venture funding. That means every decision — from how support is structured to how pricing is set — is made by someone who has skin in the game and cannot afford to be wasteful.
+
+[CHUNK 5]  score=0.6655  distance=0.3345
+DIFFERENTIATOR 5: FOUNDER-DESIGNED FOR INDIAN B2B CONTEXT
+
 ============================================================
-QUERY 2: What does this business sell? What is the main product or service and its key features?
+QUERY 2: What can this product or service do? What capabilities, features, and problems does it solve for customers?
 ============================================================
-Chunks returned : 0
+Chunks returned : 5
+Distances       : min=0.2995  max=0.3064  avg=0.3035
+
+[CHUNK 1]  score=0.7005  distance=0.2995
+It does not give generic answers. It gives answers that move the buyer forward.
+It does not script conversations. It understands them.
+It does not replace human relationships. It creates the conditions for them to happen.
+
+The AI is built with a founder's mindset — obsessed with outcomes, not just activity.
+
+---
+
+[CHUNK 2]  score=0.6975  distance=0.3025
+FEATURE 6: PERSISTENT MEMORY
+The bot remembers past conversations so customers never have to repeat themselves.
+
+- Stores customer preferences, purchase history, and conversation context
+- Personalises every interaction based on history
+- Enables long-term relationship building, not just one-time transactions
+
+FEATURE 7: ROI DASHBOARD
+Gives business owners clear visibility into how the bot is performing commercially.
+
+[CHUNK 3]  score=0.6964  distance=0.3036
+What you upload:
+- Product catalogue or service list
+- Pricing sheet
+- FAQs
+- Return or refund policy
+- Case studies or testimonials (if available)
+- Sales scripts or common objection responses (if available)
+
+All content is indexed into the RAG (Retrieval-Augmented Generation) system. The bot will use this as its only source of truth for answering questions — it will not make things up.
+
+You can update, add, or remove documents at any time without rebuilding the bot.
+
+---
+
+[CHUNK 4]  score=0.6944  distance=0.3056
+WHAT CLIENTS NEED TO PROVIDE
+- Active WhatsApp Business API account (or willingness to set one up — Vatsal can guide)
+- Business content: product list, pricing, FAQs, policies
+- Brand tone preferences
+- Target customer profile and typical sales objections you face
+
+---
+
+[CHUNK 5]  score=0.6936  distance=0.3064
+CURRENT PRODUCT: SALES BOT
+The Sales Bot is Mochan-D's flagship product. It is a WhatsApp-native AI sales agent that:
+- Detects high-intent buyers and prioritises them
+- Personalises every message based on conversation history
+- Switches languages between Hindi, English, and Hinglish naturally
+- Classifies leads as Hot, Warm, Cold, Price-Sensitive, or Comparison Shopper
+- Escalates to a human agent when required
 
 ============================================================
 QUERY 3: Who are the target customers? What are the key selling points, pricing plans, and brand tone?
@@ -78,7 +156,7 @@ Step 5 — Move toward a next step: Trial, demo, or pricing discussion.
 ---
 
 ============================================================
-MERGED UNIQUE CHUNKS (6 total)
+MERGED UNIQUE CHUNKS (13 total)
 ============================================================
 COMPANY
 Company: FoodNEST(S)
@@ -89,23 +167,11 @@ Headquarters: Lucknow, India
 Website: mochand.com
 Contact: contact@foodnests.com | WhatsApp channel at mochand.com
 
-Q: Can I set the bot's tone and personality?
-A: Yes. During onboarding you configure the brand tone, sales aggression level, language style, and discount strategy. These can be adjusted at any time.
+DOCUMENT: Founder Philosophy — Mochan-D
+SOURCE: foodnests.com / mochand.com
 
----
-
-PRICING AND BILLING
-
-Q: What are the plans?
-A: Starter at ₹9,999/month, Growth at ₹24,999/month, Pro at ₹59,999/month, and Enterprise at custom pricing. Annual billing gives you 2 months free on all plans and waives the one-time onboarding fee. See the Pricing document for full details.
-
-WHAT CLIENTS NEED TO PROVIDE
-- Active WhatsApp Business API account (or willingness to set one up — Vatsal can guide)
-- Business content: product list, pricing, FAQs, policies
-- Brand tone preferences
-- Target customer profile and typical sales objections you face
-
----
+THE PHILOSOPHY
+Mochan-D was built on one belief: every conversation a business has with a potential customer is an asset.
 
 Mochan-D's approach:
 Step 1 — Welcome the comparison: Do not dismiss the competitor.
@@ -115,6 +181,69 @@ Step 4 — Map Mochan-D's strengths directly to what they said matters.
 Step 5 — Offer the free trial: "Test us against them. 7 days, no commitment."
 
 ---
+
+ON BEING A BOOTSTRAPPED PRODUCT
+Mochan-D is built by a solo founder without venture funding. That means every decision — from how support is structured to how pricing is set — is made by someone who has skin in the game and cannot afford to be wasteful.
+
+DIFFERENTIATOR 5: FOUNDER-DESIGNED FOR INDIAN B2B CONTEXT
+
+It does not give generic answers. It gives answers that move the buyer forward.
+It does not script conversations. It understands them.
+It does not replace human relationships. It creates the conditions for them to happen.
+
+The AI is built with a founder's mindset — obsessed with outcomes, not just activity.
+
+---
+
+FEATURE 6: PERSISTENT MEMORY
+The bot remembers past conversations so customers never have to repeat themselves.
+
+- Stores customer preferences, purchase history, and conversation context
+- Personalises every interaction based on history
+- Enables long-term relationship building, not just one-time transactions
+
+FEATURE 7: ROI DASHBOARD
+Gives business owners clear visibility into how the bot is performing commercially.
+
+What you upload:
+- Product catalogue or service list
+- Pricing sheet
+- FAQs
+- Return or refund policy
+- Case studies or testimonials (if available)
+- Sales scripts or common objection responses (if available)
+
+All content is indexed into the RAG (Retrieval-Augmented Generation) system. The bot will use this as its only source of truth for answering questions — it will not make things up.
+
+You can update, add, or remove documents at any time without rebuilding the bot.
+
+---
+
+WHAT CLIENTS NEED TO PROVIDE
+- Active WhatsApp Business API account (or willingness to set one up — Vatsal can guide)
+- Business content: product list, pricing, FAQs, policies
+- Brand tone preferences
+- Target customer profile and typical sales objections you face
+
+---
+
+CURRENT PRODUCT: SALES BOT
+The Sales Bot is Mochan-D's flagship product. It is a WhatsApp-native AI sales agent that:
+- Detects high-intent buyers and prioritises them
+- Personalises every message based on conversation history
+- Switches languages between Hindi, English, and Hinglish naturally
+- Classifies leads as Hot, Warm, Cold, Price-Sensitive, or Comparison Shopper
+- Escalates to a human agent when required
+
+Q: Can I set the bot's tone and personality?
+A: Yes. During onboarding you configure the brand tone, sales aggression level, language style, and discount strategy. These can be adjusted at any time.
+
+---
+
+PRICING AND BILLING
+
+Q: What are the plans?
+A: Starter at ₹9,999/month, Growth at ₹24,999/month, Pro at ₹59,999/month, and Enterprise at custom pricing. Annual billing gives you 2 months free on all plans and waives the one-time onboarding fee. See the Pricing document for full details.
 
 COMPETITIVE EDGE SUMMARY
 - WhatsApp-first architecture built for Indian communication patterns

@@ -872,7 +872,7 @@ class RAGTool(BaseTool):
                     query,
                     top_k=5,
                     use_hybrid=False,
-                    similarity_threshold=0.7,
+                    similarity_threshold=0.6,
                 )
             )
 

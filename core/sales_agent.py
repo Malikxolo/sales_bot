@@ -483,32 +483,33 @@ class SalesAgent:
             # 3 targeted queries — fully generic, works for any business/product
             targeted_queries = [
                 "What is this company called? Who is the founder? What is the product name?",
-                "What does this business sell? What is the main product or service and its key features?",
+                "What can this product or service do? What capabilities, features, and problems does it solve for customers?",
                 "Who are the target customers? What are the key selling points, pricing plans, and brand tone?",
             ]
             
-            seen_chunks: set = set()
-            combined_chunks: list = []
+            seen_texts: set = set()
+            all_retrieved_parts: list = []
             
             for q in targeted_queries:
                 r = await rag_tool.execute(query=q)
                 if r.get("success"):
-                    for chunk_text in r.get("retrieved", "").split("\n\n"):
-                        chunk_text = chunk_text.strip()
-                        if chunk_text and chunk_text not in seen_chunks:
-                            seen_chunks.add(chunk_text)
-                            combined_chunks.append(chunk_text)
-                    logger.info(f"   ✅ Query '{q[:50]}...' → {len(r.get('retrieved','').split(chr(10)+chr(10)))} chunks")
+                    retrieved = r.get("retrieved", "").strip()
+                    chunk_count = r.get("chunks_count", "?")
+                    if retrieved and retrieved not in seen_texts:
+                        seen_texts.add(retrieved)
+                        all_retrieved_parts.append(retrieved)
+                    logger.info(f"   ✅ Query '{q[:50]}...' → {chunk_count} chunks")
                 else:
                     logger.warning(f"   ⚠️ Query failed: {r.get('error')}")
             
-            if not combined_chunks:
+            if not all_retrieved_parts:
                 logger.warning("🏢 All RAG queries returned nothing — running in generic assistant mode")
                 self._business_context = BusinessContext(loaded=False)
                 return
             
-            combined_text = "\n\n".join(combined_chunks)
-            logger.info(f"🏢 Combined unique chunks: {len(combined_chunks)} | Total chars: {len(combined_text)}")
+            combined_text = "\n\n---\n\n".join(all_retrieved_parts)
+            logger.info(f"🏢 Combined context: {len(all_retrieved_parts)} query results | Total chars: {len(combined_text)}")
+
             
             # Use analysis LLM to extract structured fields from the combined RAG text
             extract_prompt = f"""Extract business info from this text. Return ONLY valid JSON.
@@ -517,7 +518,19 @@ TEXT:
 {combined_text}
 
 Return JSON:
-{{"company_name": "company or business name", "founder_name": "name of founder if mentioned, else empty string", "product_name": "exact name of the product (e.g. sales bot, Mochan-D, etc.)", "product_type": "what they sell in 2-3 words", "product_summary": "2-3 sentence summary of what the product does", "target_audience": "who they sell to", "selling_points": ["point1", "point2", "point3"], "pricing_summary": "brief summary of plans and prices, e.g. Starter ₹9,999/mo, Growth ₹24,999/mo — empty string if no pricing found", "competitive_edge": "key differentiators vs competitors in 1-2 sentences — empty string if not mentioned", "sales_style": "friendly/consultative/premium/casual", "brand_voice": "tone description in 3-5 words"}}"""
+{{
+  "company_name": "name of the company or business — empty string if not found",
+  "founder_name": "name of the founder or owner — empty string if not mentioned",
+  "product_name": "exact name of the product or service — empty string if not found",
+  "product_type": "what the business sells in 2-4 words (e.g. handmade jewellery, cloud software, food delivery)",
+  "product_summary": "2-3 sentence description of what the business offers and how it helps customers",
+  "target_audience": "who the business sells to — be specific based on the text",
+  "selling_points": ["list every key benefit or selling point mentioned — include as many as exist in the text"],
+  "pricing_summary": "summarize any pricing mentioned exactly as stated in the text — empty string if no pricing information exists",
+  "competitive_edge": "what makes this business different from competitors — empty string if not mentioned",
+  "sales_style": "one of: friendly / consultative / premium / casual — infer from the tone of the text",
+  "brand_voice": "describe the brand tone in 3-5 words based on the text"
+}}"""
             
             response = await self.analysis_llm.generate(
                 [{"role": "user", "content": extract_prompt}],
@@ -963,7 +976,16 @@ If multiple tools needed, decide parallel vs sequential:
 - Default to PARALLEL unless clear dependency
 
 For each tool, write a focused query in enhanced_queries:
-- rag_0: Use the user's ACTUAL keywords and specific question. If user asks about "Shopify integration", query = "Shopify integration setup". If user asks about "human handoff for emotional situations", query = "human handoff escalation emotional detection". Do NOT paraphrase into marketing language — mirror what the user actually asked about.
+- rag_0: Write a capability-focused query that vector search can match well. Rules:
+  1. Keep the user's SPECIFIC keywords (product names, feature names, competitor names)
+  2. Rephrase as a capability/feature description, NOT a question — use noun phrases
+  3. Examples:
+     - User asks "can it do Shopify integration?" → query = "Shopify integration setup ecommerce capabilities"
+     - User asks "what happens when customer is angry?" → query = "human handoff escalation emotional detection angry customer"
+     - User asks "how much does it cost?" → query = "pricing plans cost monthly fee subscription"
+     - User asks "does it work for restaurants?" → query = "restaurant food business use case features industry"
+  4. Do NOT use question form ("Can it...?", "Does it...?") — those score poorly in vector search
+  5. Do NOT add marketing fluff — keep it factual and specific
 - web_search_0: focused search query for competitor comparison
 - payment_0: order description
 
