@@ -62,6 +62,10 @@ import shutil
 import asyncio
 from pymongo import MongoClient
 
+# Module-level references — populated during lifespan startup
+agent = None
+tool_manager = None
+
 def coerce_or_drop_team_id(md: dict) -> dict:
     # Operates in-place on md or returns new dict
     if not isinstance(md, dict):
@@ -106,7 +110,7 @@ async def lifespan(app: FastAPI):
     
     logging.info("⚡ Starting app lifespan...")
     
-    global agent, org_manager, kb_manager
+    global agent, org_manager, kb_manager, tool_manager
     config = Config()
 
     redis_client = Redis(
@@ -182,6 +186,9 @@ async def lifespan(app: FastAPI):
     sales_analysis_llm = LLMClient(sales_analysis_config)
     sales_response_llm = LLMClient(sales_response_config)
     tool_manager = ToolManager(config, brain_llm, web_model_config, settings.use_premium_search)
+
+    # Initialize Zapier MCP (must be done here — async context)
+    await tool_manager.initialize_zapier()
 
     # Initialize language detector if enabled
     language_detector_llm = None
@@ -1507,6 +1514,68 @@ async def set_active_collection_endpoint(
             content={"error": str(e)}, 
             status_code=500
         )
+
+
+# ============================================================================
+# ZAPIER MCP TEST ENDPOINTS
+# ============================================================================
+
+@router.get("/zapier/tools")
+async def get_zapier_tools():
+    """
+    Returns the list of Zapier MCP tools currently available.
+    Used by Streamlit test UI to discover tools.
+    """
+    try:
+        zapier_names = tool_manager.get_zapier_tool_names()
+        zapier_descriptions = tool_manager.get_zapier_tool_descriptions()
+
+        if not zapier_names:
+            return JSONResponse(content={
+                "status": "no_tools",
+                "message": "Zapier MCP is either not initialized or returned 0 tools. Check ZAPIER_MCP_TOKEN in .env and verify Zaps are enabled in Zapier.",
+                "tools": []
+            }, status_code=200)
+
+        return JSONResponse(content={
+            "status": "ok",
+            "tool_count": len(zapier_names),
+            "tools": [
+                {"name": name, "description": zapier_descriptions.get(name, "")}
+                for name in zapier_names
+            ]
+        }, status_code=200)
+
+    except Exception as e:
+        logging.error(f"❌ /zapier/tools failed: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+
+@router.post("/zapier/test")
+async def test_zapier_tool(
+    tool_name: str = Body(..., embed=True),
+    arguments: Optional[Dict[str, Any]] = Body(default={}, embed=True)
+):
+    """
+    Manually execute a Zapier MCP tool by name with given arguments.
+    Used by Streamlit test UI to verify tool execution end-to-end.
+    """
+    try:
+        if not tool_name:
+            return JSONResponse(content={"error": "tool_name is required"}, status_code=400)
+
+        logging.info(f"🧪 Zapier test: tool={tool_name}, args={arguments}")
+        result = await tool_manager.execute_zapier_tool(tool_name, arguments or {})
+
+        return JSONResponse(content={
+            "tool_name": tool_name,
+            "arguments_sent": arguments,
+            "result": result
+        }, status_code=200)
+
+    except Exception as e:
+        logging.error(f"❌ /zapier/test failed: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
 # ============================================================================

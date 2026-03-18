@@ -959,6 +959,7 @@ class ToolManager:
         self.tools: Dict[str, BaseTool] = {}
         
         self._initialize_tools()
+        self._zapier_manager = None  # Initialized async via initialize_zapier() in lifespan
         
         logger.info(f"ToolManager initialized with web model: {web_model}")
     
@@ -1083,6 +1084,95 @@ class ToolManager:
         except Exception as e:
             logger.error(f"❌ Failed to initialize web search: {str(e)}")
     
+    async def initialize_zapier(self):
+        """
+        Initialize Zapier MCP connection.
+        Must be called from async context (lifespan in chat.py) after ToolManager is created.
+        """
+        from .zapier_mcp import ZapierMCPManager
+
+        token = os.getenv("ZAPIER_MCP_TOKEN")
+        if not token:
+            logger.info("⚠️ ZAPIER_MCP_TOKEN not set — Zapier MCP disabled")
+            return
+
+        try:
+            self._zapier_manager = ZapierMCPManager(token)
+            await self._zapier_manager.initialize()
+
+            tool_count = len(self._zapier_manager.get_tool_names())
+            if tool_count > 0:
+                logger.info(f"✅ Zapier MCP ready with {tool_count} tools")
+            else:
+                logger.warning("⚠️ Zapier MCP connected but no tools discovered — check your enabled Zaps in Zapier")
+        except Exception as e:
+            logger.error(f"❌ Zapier MCP initialization failed: {e}")
+            self._zapier_manager = None
+
+    async def execute_zapier_tool(self, tool_name: str, arguments: dict) -> dict:
+        """
+        Execute a Zapier MCP tool by name with given arguments.
+
+        Smart param handling:
+        - If no 'instructions' key is present, build one from 'query'
+        - If 'query' looks like JSON (LLM generated structured params),
+          convert each key:value pair to a natural language line
+        - If 'query' is plain text, use it directly as instructions
+        - Strip the raw 'query' key before sending — Zapier doesn't understand it
+        """
+        if not self._zapier_manager:
+            return {
+                "success": False,
+                "error": "Zapier MCP is not initialized (missing ZAPIER_MCP_TOKEN or init failed)"
+            }
+
+        # ── SMART PARAM CONVERSION ──────────────────────────────────────────
+        if not arguments.get("instructions"):
+            query_str = arguments.get("query", "")
+
+            if query_str:
+                try:
+                    parsed = json.loads(query_str)
+                    if isinstance(parsed, dict):
+                        # LLM generated structured JSON — convert to natural language
+                        instructions_parts = [f"{k}: {v}" for k, v in parsed.items()]
+                        arguments["instructions"] = "\n".join(instructions_parts)
+                        logger.info(f"📝 Converted LLM JSON params to Zapier instructions for '{tool_name}'")
+                    else:
+                        arguments["instructions"] = query_str
+                except (ValueError, TypeError):
+                    # Plain text — use as-is
+                    arguments["instructions"] = query_str
+                    logger.info(f"📝 Using query string as Zapier instructions for '{tool_name}'")
+
+            # Remove the raw 'query' key — Zapier doesn't know what to do with it
+            arguments.pop("query", None)
+        # ────────────────────────────────────────────────────────────────────
+
+        return await self._zapier_manager.call_tool(tool_name, arguments)
+
+    def get_zapier_tool_names(self) -> list:
+        """Get list of available Zapier tool names. Returns empty list if not initialized."""
+        if not self._zapier_manager:
+            return []
+        return self._zapier_manager.get_tool_names()
+
+    def get_zapier_tool_descriptions(self) -> dict:
+        """Get {name: description} dict for all available Zapier tools."""
+        if not self._zapier_manager:
+            return {}
+        return self._zapier_manager.get_tool_descriptions()
+
+    def get_zapier_tool_required_params(self) -> dict:
+        """
+        Get {tool_name: [required_param, ...]} for all Zapier tools.
+        Sourced from the inputSchema Zapier returns during tools/list.
+        Used by SalesAgent to build better LLM prompts.
+        """
+        if not self._zapier_manager:
+            return {}
+        return self._zapier_manager.get_tool_required_params()
+
     def get_tool(self, name: str) -> Optional[BaseTool]:
         """Get tool by name"""
         return self.tools.get(name)
@@ -1185,6 +1275,14 @@ class ToolManager:
         """Cleanup tool resources"""
         
         logger.info("🧹 Cleaning up tools...")
+
+        # Cleanup Zapier MCP connection
+        if self._zapier_manager:
+            try:
+                await self._zapier_manager.close()
+                logger.info("✅ Zapier MCP connection closed")
+            except Exception as e:
+                logger.warning(f"⚠️ Error closing Zapier MCP: {e}")
         
         # Cleanup standard tools
         for name, tool in self.tools.items():

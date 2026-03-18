@@ -6,10 +6,7 @@ FIXED VERSION - Proper model selection flow
 import asyncio
 import aiohttp
 import json
-import math
-import statistics
 import re
-import sqlite3
 import os
 import logging
 from typing import Dict, List, Any, Optional
@@ -18,9 +15,8 @@ from abc import ABC, abstractmethod
 from .exceptions import ToolExecutionError
 from .quota_manager import QuotaManager
 from .llm_client import LLMClient
-from .knowledge_base import query_documents, get_collection_cache, get_org_cache
+from .weaviate_rag import get_weaviate_rag_client
 from .web_search_agent import search_perplexity, search_llmlayer
-import ast
 from redis.asyncio import Redis
 
 logger = logging.getLogger(__name__)
@@ -52,153 +48,172 @@ class BaseTool(ABC):
         self.usage_count += 1
         self.last_used = datetime.now().isoformat()
 
-class CalculatorTool(BaseTool):
-    """Mathematical calculator tool"""
-    
-    def __init__(self):
+class PaymentTool(BaseTool):
+    """Generate WhatsApp native payment parameters for order processing"""
+
+    def __init__(self, rag_tool: "RAGTool" = None):
         super().__init__(
-            "calculator",
-            "Perform mathematical calculations and statistical operations"
+            "payment",
+            "Generate payment order for WhatsApp native payment"
         )
-    
-    async def execute(self, query: str = None, expression: str = None, 
-                      operation: str = None, numbers: List[float] = None, **kwargs) -> Dict[str, Any]:
-        """Execute mathematical operations"""
+        self.rag_tool = rag_tool
+        self.configuration_name = os.getenv("PAYMENT_GATEWAY_CONFIG_NAME", "FoodNests")
+        self.payment_gateway_type = os.getenv("PAYMENT_GATEWAY_TYPE", "razorpay")
+        self.currency = os.getenv("PAYMENT_CURRENCY", "INR")
+        self.retailer_id = os.getenv("PAYMENT_RETAILER_ID", "FOODNEST-MAIN")
+        logger.info("PaymentTool initialized")
+
+    async def execute(self, query: str, user_id: str = None, **kwargs) -> Dict[str, Any]:
+        """
+        Generate payment parameters for WhatsApp order.
         
+        Looks up actual prices from RAG, generates unique reference_id,
+        constructs Meta Graph API compliant payment params.
+        """
         self._record_usage()
-        if query and not expression:
-            expression = query
+        import uuid as uuid_mod
+
         try:
-            if expression:
-                return await self._evaluate_expression(expression)
-            elif operation and numbers:
-                return await self._perform_operation(operation, numbers)
-            else:
+            # Step 1: Parse items from the query
+            items_to_price = self._parse_items(query)
+            if not items_to_price:
                 return {
                     "success": False,
-                    "error": "Provide either 'expression' or 'operation' with 'numbers'"
+                    "error": "Could not determine items to purchase. Please specify what you'd like to buy.",
+                    "needs_clarification": True
                 }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Calculation error: {str(e)}",
-                "tool": self.name
+
+            # Step 2: Look up prices from RAG (knowledge base)
+            priced_items = []
+            for item in items_to_price:
+                if self.rag_tool:
+                    price_query = f"price of {item['name']}"
+                    rag_result = await self.rag_tool.execute(
+                        query=price_query,
+                        user_id=user_id,
+                        **{k: v for k, v in kwargs.items() if k in ['businessId', 'email', 'collection_ids']}
+                    )
+                    if rag_result.get("success"):
+                        price_paise = self._extract_price_from_rag(
+                            rag_result.get("retrieved", ""),
+                            item["name"]
+                        )
+                        if price_paise:
+                            priced_items.append({
+                                "name": item["name"],
+                                "quantity": item["quantity"],
+                                "unit_price": price_paise
+                            })
+                        else:
+                            return {
+                                "success": False,
+                                "error": f"Could not find price for '{item['name']}' in our catalog.",
+                                "needs_clarification": True
+                            }
+                    else:
+                        return {
+                            "success": False,
+                            "error": f"Could not look up '{item['name']}' in catalog.",
+                            "needs_clarification": True
+                        }
+                else:
+                    return {
+                        "success": False,
+                        "error": "Product catalog not available for price lookup.",
+                    }
+
+            # Step 3: Generate unique reference ID
+            reference_id = f"ORD-{uuid_mod.uuid4().hex[:12].upper()}"
+
+            # Step 4: Build payment params
+            params = {
+                "reference_id": reference_id,
+                "retailer_id": self.retailer_id,
+                "items": priced_items,
+                "payment_gateway": {
+                    "type": self.payment_gateway_type,
+                    "configuration_name": self.configuration_name
+                },
+                "currency": self.currency
             }
 
-    async def _evaluate_expression(self, expression: str) -> Dict[str, Any]:
-        """Safely evaluate mathematical expression using AST parsing"""
+            # Step 5: Generate human-readable summary
+            total_paise = sum(i["unit_price"] * i["quantity"] for i in priced_items)
+            total_inr = total_paise / 100
+            item_lines = [f"  {i['name']} x{i['quantity']} = ₹{(i['unit_price'] * i['quantity']) / 100:.0f}" for i in priced_items]
+            order_summary = f"Order {reference_id}:\\n" + "\\n".join(item_lines) + f"\\n  Total: ₹{total_inr:.0f}"
 
-        allowed_names = {
-            "abs": abs, "round": round, "min": min, "max": max, "sum": sum,
-            "sqrt": math.sqrt, "pow": pow, "log": math.log, "exp": math.exp,
-            "sin": math.sin, "cos": math.cos, "tan": math.tan,
-            "pi": math.pi, "e": math.e
-        }
+            logger.info(f"✅ Payment order generated: {reference_id}, total=₹{total_inr:.0f}, items={len(priced_items)}")
 
-        try:
-            tree = ast.parse(expression, mode='eval')
-            result = self._safe_eval_ast(tree.body, allowed_names)
             return {
                 "success": True,
-                "result": result,
-                "expression": expression,
-                "formatted_result": f"{result:,.6g}"
+                "params": params,
+                "order_summary": order_summary,
+                "total_amount_inr": total_inr
             }
 
         except Exception as e:
+            logger.error(f"❌ Payment generation failed: {e}")
             return {
                 "success": False,
-                "error": f"Invalid expression: {str(e)}",
-                "expression": expression
+                "error": f"Payment generation failed: {str(e)}"
             }
 
-    def _safe_eval_ast(self, node, allowed_names):
-        """Recursively evaluate AST nodes safely"""
-
-        if isinstance(node, ast.Num):  # e.g., 3, 4.5
-            return node.n
-        elif isinstance(node, ast.Constant):  # Python 3.8+
-            if isinstance(node.value, (int, float)):
-                return node.value
-            raise ValueError("Only numeric constants are allowed")
-
-        elif isinstance(node, ast.BinOp):  # e.g., a + b
-            left = self._safe_eval_ast(node.left, allowed_names)
-            right = self._safe_eval_ast(node.right, allowed_names)
-
-            if isinstance(node.op, ast.Add): return left + right
-            elif isinstance(node.op, ast.Sub): return left - right
-            elif isinstance(node.op, ast.Mult): return left * right
-            elif isinstance(node.op, ast.Div): return left / right
-            elif isinstance(node.op, ast.FloorDiv): return left // right
-            elif isinstance(node.op, ast.Mod): return left % right
-            elif isinstance(node.op, ast.Pow): return left ** right
+    def _parse_items(self, query: str) -> List[Dict]:
+        """Parse item names and quantities from query string"""
+        items = []
+        parts = [p.strip() for p in query.split(",") if p.strip()]
+        for part in parts:
+            match = re.match(r'(\d+)\s*[xX×]\s*(.+)', part)
+            if match:
+                items.append({"name": match.group(2).strip(), "quantity": int(match.group(1))})
             else:
-                raise ValueError(f"Unsupported operator: {ast.dump(node.op)}")
+                items.append({"name": part.strip(), "quantity": 1})
+        return items
 
-        elif isinstance(node, ast.UnaryOp):  # e.g., -a
-            operand = self._safe_eval_ast(node.operand, allowed_names)
-            if isinstance(node.op, ast.UAdd): return +operand
-            elif isinstance(node.op, ast.USub): return -operand
-            else:
-                raise ValueError(f"Unsupported unary operator: {ast.dump(node.op)}")
+    def _extract_price_from_rag(self, rag_text: str, item_name: str) -> Optional[int]:
+        """Extract price in paise from RAG text for a given item."""
+        text_lower = rag_text.lower()
+        item_lower = item_name.lower()
 
-        elif isinstance(node, ast.Call):  # e.g., sin(x)
-            if not isinstance(node.func, ast.Name):
-                raise ValueError("Only named functions are allowed")
-            func_name = node.func.id
-            if func_name not in allowed_names:
-                raise ValueError(f"Function '{func_name}' is not allowed")
+        item_pos = text_lower.find(item_lower)
+        if item_pos == -1:
+            for word in item_lower.split():
+                if len(word) > 3:
+                    pos = text_lower.find(word)
+                    if pos != -1:
+                        item_pos = pos
+                        break
 
-            args = [self._safe_eval_ast(arg, allowed_names) for arg in node.args]
-            return allowed_names[func_name](*args)
-
-        elif isinstance(node, ast.Name):  # e.g., pi, e
-            if node.id in allowed_names:
-                return allowed_names[node.id]
-            raise ValueError(f"Use of unknown variable '{node.id}'")
-
+        if item_pos == -1:
+            search_text = rag_text
         else:
-            raise ValueError(f"Unsupported expression element: {ast.dump(node)}")
+            start = max(0, item_pos - 200)
+            end = min(len(rag_text), item_pos + 300)
+            search_text = rag_text[start:end]
 
-    async def _perform_operation(self, operation: str, numbers: List[float]) -> Dict[str, Any]:
-        """Perform statistical operations"""
-        
-        if not numbers:
-            return {"success": False, "error": "No numbers provided"}
-        
-        try:
-            operations_map = {
-                "mean": statistics.mean,
-                "median": statistics.median,
-                "mode": statistics.mode,
-                "stdev": lambda x: statistics.stdev(x) if len(x) > 1 else 0,
-                "variance": lambda x: statistics.variance(x) if len(x) > 1 else 0,
-                "sum": sum,
-                "min": min,
-                "max": max
-            }
-            
-            if operation in operations_map:
-                result = operations_map[operation](numbers)
-            else:
-                return {"success": False, "error": f"Unknown operation: {operation}"}
-            
-            return {
-                "success": True,
-                "operation": operation,
-                "numbers": numbers,
-                "result": result,
-                "count": len(numbers),
-                "formatted_result": f"{result:,.6g}"
-            }
-            
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Operation failed: {str(e)}",
-                "operation": operation
-            }
+        patterns = [
+            r'₹\s*([\d,]+(?:\.\d{1,2})?)',
+            r'[Rr]s\.?\s*([\d,]+(?:\.\d{1,2})?)',
+            r'INR\s*([\d,]+(?:\.\d{1,2})?)',
+            r'([\d,]+(?:\.\d{1,2})?)\s*(?:INR|inr)',
+            r'[Pp]rice[:\s]+₹?\s*([\d,]+(?:\.\d{1,2})?)',
+            r'[Cc]ost[:\s]+₹?\s*([\d,]+(?:\.\d{1,2})?)',
+            r'[Mm][Rr][Pp][:\s]+₹?\s*([\d,]+(?:\.\d{1,2})?)',
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, search_text)
+            if match:
+                price_str = match.group(1).replace(",", "")
+                try:
+                    price_float = float(price_str)
+                    price_paise = int(price_float * 100)
+                    if 100 <= price_paise <= 10000000:  # ₹1 to ₹1,00,000
+                        return price_paise
+                except ValueError:
+                    continue
+        return None
 
 class WebSearchTool(BaseTool):
     """
@@ -834,132 +849,94 @@ class WebSearchTool(BaseTool):
             logger.debug("🔒 WebSearchTool session closed")
 
 class RAGTool(BaseTool):
-    """Execute RAG query on user's vector database via REST API"""
+    """RAG tool — retrieves from Weaviate RAG backend (FN-Weaviate-DB)"""
+
     def __init__(self, llm_client: LLMClient = None):
         super().__init__("rag", "Retrieve information from uploaded knowledge base")
         self.llm_client = llm_client
-        logger.info("RAGTool initialized")
-    
+        self._weaviate = get_weaviate_rag_client()
+        logger.info("RAGTool initialized (Weaviate backend)")
+
     async def execute(self, query: str, user_id: str = None, **kwargs) -> Dict[str, Any]:
-        """Execute RAG query on user's vector database"""
+        """Execute RAG query against the Weaviate RAG API."""
         self._record_usage()
         logger.info(f"RAG query started: user_id={user_id}, query='{query[:50]}...'")
-        
+
         try:
-            if not user_id:
-                logger.error("RAG query failed: User ID missing")
+            # Run synchronous HTTP call in thread pool so we don't block the event loop
+            import asyncio
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: self._weaviate.query(
+                    query,
+                    top_k=5,
+                    use_hybrid=False,
+                    similarity_threshold=0.6,
+                )
+            )
+
+            if result["success"]:
+                chunks_count = len(result["results"])
+                distances = result.get("distances", [])
+
+                logger.info(f"✅ RAG query SUCCESS for user {user_id}")
+                logger.info(f"   Retrieved chunks: {chunks_count}")
+                logger.info(f"   Query: '{query[:50]}...'")
+
+                if distances:
+                    avg_distance = sum(distances) / len(distances)
+                    min_distance = min(distances)
+                    max_distance = max(distances)
+                    logger.info(
+                        f"   Distance metrics - Min: {min_distance:.4f}, "
+                        f"Max: {max_distance:.4f}, Avg: {avg_distance:.4f}"
+                    )
+                    if avg_distance < 0.3:
+                        logger.info("   Quality: HIGH relevance")
+                    elif avg_distance < 0.6:
+                        logger.info("   Quality: MEDIUM relevance")
+                    else:
+                        logger.warning("   Quality: LOW relevance")
+                else:
+                    avg_distance = None
+                    logger.warning("   No distance information available")
+
+                documents = [
+                    r["document"]
+                    for r in result["results"]
+                    if isinstance(r, dict) and r.get("document")
+                ]
+
+                if documents:
+                    first_chunk = documents[0][:200] + ("..." if len(documents[0]) > 200 else "")
+                    logger.info(f"   First chunk preview: '{first_chunk}'")
+
+                return {
+                    "success":      True,
+                    "retrieved":    "\n\n".join(documents),
+                    "chunks":       result["results"],
+                    "query":        query,
+                    "chunks_count": chunks_count,
+                    "collection":   "weaviate",
+                    "distances":    distances,
+                    "avg_distance": avg_distance,
+                }
+            else:
+                logger.error(f"❌ RAG query FAILED: {result.get('error')}")
                 return {
                     "success": False,
-                    "error": "User ID required for RAG queries",
-                    "query": query
+                    "error":   result.get("error", "Unknown error"),
+                    "query":   query,
                 }
-            
-            # Get user context
-            logger.debug(f"Fetching user context for: {user_id}")
-            
-            
-            if not kwargs.get('businessId') or not kwargs.get('email'):
-                logger.error(f"Missing tenant context for user {user_id}")
-                return {
-                    "success": False,
-                    "error": "Tenant context not found for user",
-                    "query": query
-                }
-            
-            collection_ids = kwargs.get('collection_ids', [])
-            
-            
-            headers = {
-                "Content-Type": "application/json",
-                "X-Gateway-Service-Key": os.getenv("RAG_API_KEY"),
-                "X-Auth-Tenant-Slug": kwargs.get('businessId'),
-                "X-Auth-User-Email": kwargs.get('email')
-            }
-            
-            payload = {
-                "query": query,
-                "collection_ids": collection_ids,
-                "top_k": kwargs.get("top_k", 5),
-                "similarity_threshold": kwargs.get("similarity_threshold", 0.7),
-                "use_hybrid": kwargs.get("use_hybrid", True)
-            }
-            
-            logger.debug(f"RAG API request: collection_ids={collection_ids}, top_k={payload['top_k']}")
-            
-            # Make API call
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{os.getenv('RAG_API_BASE_URL')}/api/v1/query/retrieve",
-                    headers=headers,
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=30)
-                ) as response:
-                    response_data = await response.json()
-                    
-                    if response.status != 200:
-                        logger.error(f"❌ RAG API returned {response.status}: {response_data}")
-                        return {
-                            "success": False,
-                            "error": response_data.get("detail", f"API error: {response.status}"),
-                            "query": query
-                        }
-            
-            # Parse successful response
-            results = response_data.get("results", [])
-            chunks_count = len(results)
-            
-            # Extract documents and distances
-            documents = [r.get("content", r.get("document", "")) for r in results]
-            distances = [r.get("distance", r.get("score", 0)) for r in results]
-            
-            logger.info(f"✅ RAG query SUCCESS for user {user_id}")
-            logger.info(f"   Collections: {collection_ids}")
-            logger.info(f"   Retrieved chunks: {chunks_count}")
-            logger.info(f"   Query: '{query[:50]}...'")
-            
-            # Log first chunk preview
-            if documents:
-                first_chunk = documents[0][:200] + ("..." if len(documents[0]) > 200 else "")
-                logger.info(f"   First chunk preview: '{first_chunk}'")
-                logger.info(f"   Total retrieved documents: {len(documents)}")
-            
-            return {
-                "success": True,
-                "retrieved": "\n\n".join(documents),
-                "chunks": results,
-                "query": query,
-                "chunks_count": chunks_count,
-                "collection_ids": collection_ids
-            }
-                    
-        except aiohttp.ClientError as e:
-            logger.error(f"❌ RAG API connection error for user {user_id}: {str(e)}")
-            return {
-                "success": False,
-                "error": f"RAG service connection failed: {str(e)}",
-                "query": query
-            }
-                
+
         except Exception as e:
-            logger.error(f"❌ RAG query EXCEPTION for user {user_id}")
-            logger.error(f"   Exception: {str(e)}")
-            logger.error(f"   Query: '{query[:50]}...'")
-            
-            # Log full traceback for debugging
             import traceback
-            logger.error(f"   Traceback: {traceback.format_exc()}")
-            
+            logger.error(f"❌ RAG query EXCEPTION: {e}\n{traceback.format_exc()}")
             return {
                 "success": False,
-                "error": f"RAG query failed: {str(e)}",
-                "query": query
-            }
-                
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"RAG query failed: {str(e)}",
-                "query": query
+                "error":   f"RAG query failed: {str(e)}",
+                "query":   query,
             }
 
 class ToolManager:
@@ -982,6 +959,7 @@ class ToolManager:
         self.tools: Dict[str, BaseTool] = {}
         
         self._initialize_tools()
+        self._zapier_manager = None  # Initialized async via initialize_zapier() in lifespan
         
         logger.info(f"ToolManager initialized with web model: {web_model}")
     
@@ -992,16 +970,16 @@ class ToolManager:
         
         logger.debug(f"Tool configs: {tool_configs}")
         
-        # Calculator (always available)
-        self.tools["calculator"] = CalculatorTool()
-        logger.info("  Calculator tool initialized")
-        
         # Web Search (if configured)
         self._initialize_web_search(tool_configs)
         
         # RAG Tool (always available)
         self.tools["rag"] = RAGTool(self.llm_client)
         logger.info("  RAG tool initialized")
+        
+        # Payment Tool (uses RAG for price lookups)
+        self.tools["payment"] = PaymentTool(rag_tool=self.tools.get("rag"))
+        logger.info("  Payment tool initialized")
     
     def _initialize_web_search(self, tool_configs: Dict[str, Any]):
         """Initialize web search with multi-provider support"""
@@ -1106,6 +1084,52 @@ class ToolManager:
         except Exception as e:
             logger.error(f"❌ Failed to initialize web search: {str(e)}")
     
+    async def initialize_zapier(self):
+        """
+        Initialize Zapier MCP connection.
+        Must be called from async context (lifespan in chat.py) after ToolManager is created.
+        """
+        from .zapier_mcp import ZapierMCPManager
+
+        token = os.getenv("ZAPIER_MCP_TOKEN")
+        if not token:
+            logger.info("⚠️ ZAPIER_MCP_TOKEN not set — Zapier MCP disabled")
+            return
+
+        try:
+            self._zapier_manager = ZapierMCPManager(token)
+            await self._zapier_manager.initialize()
+
+            tool_count = len(self._zapier_manager.get_tool_names())
+            if tool_count > 0:
+                logger.info(f"✅ Zapier MCP ready with {tool_count} tools")
+            else:
+                logger.warning("⚠️ Zapier MCP connected but no tools discovered — check your enabled Zaps in Zapier")
+        except Exception as e:
+            logger.error(f"❌ Zapier MCP initialization failed: {e}")
+            self._zapier_manager = None
+
+    async def execute_zapier_tool(self, tool_name: str, arguments: dict) -> dict:
+        """Execute a Zapier MCP tool by name with given arguments."""
+        if not self._zapier_manager:
+            return {
+                "success": False,
+                "error": "Zapier MCP is not initialized (missing ZAPIER_MCP_TOKEN or init failed)"
+            }
+        return await self._zapier_manager.call_tool(tool_name, arguments)
+
+    def get_zapier_tool_names(self) -> list:
+        """Get list of available Zapier tool names. Returns empty list if not initialized."""
+        if not self._zapier_manager:
+            return []
+        return self._zapier_manager.get_tool_names()
+
+    def get_zapier_tool_descriptions(self) -> dict:
+        """Get {name: description} dict for all available Zapier tools."""
+        if not self._zapier_manager:
+            return {}
+        return self._zapier_manager.get_tool_descriptions()
+
     def get_tool(self, name: str) -> Optional[BaseTool]:
         """Get tool by name"""
         return self.tools.get(name)
@@ -1208,6 +1232,14 @@ class ToolManager:
         """Cleanup tool resources"""
         
         logger.info("🧹 Cleaning up tools...")
+
+        # Cleanup Zapier MCP connection
+        if self._zapier_manager:
+            try:
+                await self._zapier_manager.close()
+                logger.info("✅ Zapier MCP connection closed")
+            except Exception as e:
+                logger.warning(f"⚠️ Error closing Zapier MCP: {e}")
         
         # Cleanup standard tools
         for name, tool in self.tools.items():
@@ -1218,15 +1250,4 @@ class ToolManager:
                 except Exception as e:
                     logger.warning(f"   ⚠️ Error closing {name}: {str(e)}")
         
-
         logger.info("  Tool cleanup complete")
-        
-
-if __name__ == "__main__":
-    tool = ToolManager({}, None)
-    import asyncio
-    async def main():
-        res = await tool.execute_tool("rag",query="What is given in the uploaded document?", user_id="user123", businessId="foodn-8b4c78", email="aakashisjesus@gmail.com", collection_ids=["69490fbb-ab43-43ef-a0c7-f54a9e4bfd99"])
-        print(res)
-    
-    asyncio.run(main())

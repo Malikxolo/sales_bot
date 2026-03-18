@@ -1760,6 +1760,89 @@ def main():
                 st.rerun()
                 
 
+    # ── ZAPIER MCP TEST PANEL ────────────────────────────────────────────────
+    with st.expander("🔌 Zapier MCP — Test Panel", expanded=False):
+        st.caption("Use this panel to verify your Zapier MCP connection and test tool execution directly.")
+
+        col_status, col_refresh = st.columns([4, 1])
+        with col_refresh:
+            refresh_tools = st.button("🔄 Refresh", key="zapier_refresh")
+
+        # Fetch tool list from backend
+        if "zapier_tools_cache" not in st.session_state or refresh_tools:
+            try:
+                resp = requests.get("http://localhost:8020/api/zapier/tools", timeout=10)
+                st.session_state.zapier_tools_cache = resp.json()
+            except Exception as e:
+                st.session_state.zapier_tools_cache = {"error": str(e)}
+
+        tools_data = st.session_state.get("zapier_tools_cache", {})
+
+        with col_status:
+            if "error" in tools_data:
+                st.error(f"❌ Could not reach backend: {tools_data['error']}")
+            elif tools_data.get("status") == "no_tools":
+                st.warning(f"⚠️ {tools_data.get('message', 'No Zapier tools found.')}")
+            elif tools_data.get("status") == "ok":
+                st.success(f"✅ Zapier MCP connected — {tools_data.get('tool_count', 0)} tool(s) available")
+
+        # Show discovered tools
+        tools_list = tools_data.get("tools", [])
+        if tools_list:
+            st.markdown("**Discovered Zapier Tools:**")
+            for t in tools_list:
+                st.markdown(f"- `{t['name']}` — {t.get('description', '')}")
+
+            st.markdown("---")
+            st.markdown("**🧪 Execute a Tool Manually**")
+
+            tool_names = [t["name"] for t in tools_list]
+            selected_tool = st.selectbox("Select tool to test:", tool_names, key="zapier_test_tool")
+
+            st.caption("Enter arguments as JSON. Example: `{\"email\": \"test@example.com\", \"name\": \"John\"}`")
+            args_input = st.text_area(
+                "Arguments (JSON):",
+                value="{}",
+                height=80,
+                key="zapier_test_args"
+            )
+
+            if st.button("▶️ Run Tool", key="zapier_run_btn", type="primary"):
+                try:
+                    parsed_args = json.loads(args_input)
+                except json.JSONDecodeError as e:
+                    st.error(f"❌ Invalid JSON in arguments: {e}")
+                    parsed_args = None
+
+                if parsed_args is not None:
+                    with st.spinner(f"Executing `{selected_tool}`..."):
+                        try:
+                            run_resp = requests.post(
+                                "http://localhost:8020/api/zapier/test",
+                                json={"tool_name": selected_tool, "arguments": parsed_args},
+                                timeout=30
+                            )
+                            run_data = run_resp.json()
+
+                            result = run_data.get("result", {})
+                            if result.get("success"):
+                                st.success("✅ Tool executed successfully!")
+                                st.markdown("**Result:**")
+                                st.code(result.get("result", "No output returned"), language="text")
+                            else:
+                                st.error(f"❌ Tool failed: {result.get('error', 'Unknown error')}")
+
+                            with st.expander("📦 Full raw response"):
+                                st.json(run_data)
+
+                        except Exception as e:
+                            st.error(f"❌ Request failed: {e}")
+        else:
+            if "error" not in tools_data:
+                st.info("No tools to test. Make sure ZAPIER_MCP_TOKEN is set in .env and the server is running.")
+
+    # ── END ZAPIER MCP TEST PANEL ────────────────────────────────────────────
+
     # Main interface
     st.markdown("## 🎯 Research Query")
     st.caption("The Brain Agent will analyze your query and dynamically select appropriate tools")

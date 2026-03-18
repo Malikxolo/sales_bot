@@ -138,7 +138,6 @@ class SalesAgent:
         self._payment_available = "payment" in self.available_tools
         self._zapier_tools = tool_manager.get_zapier_tool_names()
         self._zapier_descriptions = tool_manager.get_zapier_tool_descriptions()
-        self._zapier_required_params = tool_manager.get_zapier_tool_required_params()
         
         logger.info(f"SalesAgent initialized with tools: {self.available_tools}")
         logger.info(f"Language Detection: {'ENABLED ✅' if self.language_detection_enabled else 'DISABLED ⚠️'}")
@@ -149,41 +148,21 @@ class SalesAgent:
             logger.info(f"Payment Tool: ENABLED ✅")
     
     def _get_tools_prompt_section(self) -> str:
-        """
-        Build the tools section for analysis prompts.
-
-        Key improvements over original:
-        - Explicitly tells LLM that Zapier uses NATURAL LANGUAGE instructions
-        - Shows required params per tool so LLM populates tool_args correctly
-        """
-        tools_section = (
-            "Available tools:\n"
-            "    - rag: Knowledge base retrieval (products, pricing, features)"
-        )
-
+        """Get the tools section for analysis prompts."""
+        tools_section = "Available tools:\n    - rag: Knowledge base retrieval (products, pricing, features)"
+        
         if self._web_search_available:
             tools_section += "\n    - web_search: Internet search (ONLY for competitor comparisons)"
-
+        
         if self._payment_available:
             tools_section += "\n    - payment: Generate WhatsApp payment order"
 
+        # Zapier tools — listed individually so the analysis LLM can select the right one
         if self._zapier_tools:
-            tools_section += (
-                "\n\n    Zapier automation tools — use when user action requires an external app "
-                "(CRM update, email, Slack message, calendar event, task creation, etc.):\n"
-                "    NOTE: Zapier tools accept NATURAL LANGUAGE instructions. "
-                "Populate tool_args[tool_name]['instructions'] with a clear, specific sentence "
-                "describing exactly what to do, including all relevant details "
-                "(recipient name, email address, subject, message body, etc.).\n"
-                "    IMPORTANT: Only trigger a Zapier tool when user intent clearly maps to it. "
-                "Never use speculatively."
-            )
+            tools_section += "\n\n    Zapier automation tools (use when user action requires CRM update, email, Slack message, calendar event, or task creation):"
             for tool_name in self._zapier_tools:
                 description = self._zapier_descriptions.get(tool_name, "Zapier automation")
-                required = self._zapier_required_params.get(tool_name, [])
                 tools_section += f"\n    - {tool_name}: {description}"
-                if required:
-                    tools_section += f"\n      Required params: {', '.join(required)}"
 
         return tools_section
     
@@ -896,17 +875,6 @@ Examples:
         current_date = datetime.now().strftime("%B %d, %Y")
         business_context = self._business_context_prompt()
         tools_section = self._get_tools_prompt_section()
-
-        # Build per-tool required-params hint to inject into the analysis prompt
-        zapier_tools_detail = ""
-        if self._zapier_tools:
-            parts = []
-            for tn in self._zapier_tools:
-                req = self._zapier_required_params.get(tn, [])
-                if req:
-                    parts.append(f"  {tn}: requires {', '.join(req)}")
-            if parts:
-                zapier_tools_detail = "\nZapier tool required fields:\n" + "\n".join(parts)
         
         # Build stage options for the prompt
         stage_options = "\n".join([
@@ -1037,12 +1005,11 @@ For each tool, write a focused query in enhanced_queries:
 - web_search_0: focused search query for competitor comparison
 - payment_0: order description
 
-For Zapier tools, populate `tool_args` like this:
-  tool_args: {{"<tool_name>": {{"instructions": "<natural language instruction>"}}}}
-The instructions value must be ONE clear sentence describing the full action,
-including every required detail the user mentioned (email, name, subject, message body, etc.).{zapier_tools_detail}
-Example: {{"instructions": "Send an email to john@example.com with subject 'Follow-up' and body 'Hi John, thanks for your interest. We will be in touch tomorrow.'"}}
-Only include details the user has EXPLICITLY stated. Never invent contact info.
+For Zapier tools, populate `tool_args` with a single "instructions" key containing
+a natural language description of what to do, extracted from the conversation context.
+Example: {{"instructions": "Send an email to john@example.com thanking him for his 
+interest and saying we will follow up tomorrow"}}
+Only include details the user has explicitly mentioned.
 
 TASK 5 — NEXT MOVE:
 What should the response accomplish? Be specific.
